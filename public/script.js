@@ -1,6 +1,5 @@
 const STORAGE_KEY = 'qz-helper-config-v2';
 const LOG_KEY = 'qz-helper-logs-v2';
-const EARLY_START_MS = 5000;
 const OFFICIAL_WX_APP_ID = 'wx2996d437cd442527';
 const OFFICIAL_GRAPHQL_URL = 'https://wechat.v2.traceint.com/index.php/graphql/';
 
@@ -8,12 +7,10 @@ const defaultConfig = {
   cookie: '',
   authorization: '',
   lib_id: '',
-  open_time: '07:00:00',
-  fast_interval: 0.45,
-  slow_interval: 3,
-  burst_interval: 0.25,
+  slow_interval: 0.5,
   concurrency: 2,
   candidate_limit: 6,
+  cooldown: 1.2,
   preferred_seats: '',
   ntfy_topic: '',
   captcha: '',
@@ -23,7 +20,7 @@ const defaultConfig = {
 const state = {
   config: { ...defaultConfig },
   timer: null,
-  countdownTimer: null,
+  worker: null,
   running: false,
   mode: 'idle',
   rounds: 0,
@@ -31,6 +28,7 @@ const state = {
   backoffMs: 0,
   seatCooldown: {},
   success: false,
+  lastNoSeatLogAt: 0,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -44,9 +42,7 @@ const els = {
   summaryCookie: $('summaryCookie'),
   summaryOpenTime: $('summaryOpenTime'),
   summaryRounds: $('summaryRounds'),
-  scheduleBtn: $('scheduleBtn'),
   leakBtn: $('leakBtn'),
-  onceBtn: $('onceBtn'),
   stopBtn: $('stopBtn'),
   configForm: $('configForm'),
   cookieInput: $('cookieInput'),
@@ -54,13 +50,11 @@ const els = {
   roomSelect: $('roomSelect'),
   roomHint: $('roomHint'),
   libIdInput: $('libIdInput'),
-  openTimeInput: $('openTimeInput'),
   captchaInput: $('captchaInput'),
-  fastIntervalInput: $('fastIntervalInput'),
   slowIntervalInput: $('slowIntervalInput'),
-  burstIntervalInput: $('burstIntervalInput'),
   concurrencyInput: $('concurrencyInput'),
   candidateLimitInput: $('candidateLimitInput'),
+  cooldownInput: $('cooldownInput'),
   preferredSeatsInput: $('preferredSeatsInput'),
   ntfyInput: $('ntfyInput'),
   authUrlInput: $('authUrlInput'),
@@ -95,13 +89,11 @@ function fillForm() {
   els.cookieInput.value = state.config.cookie || '';
   els.authorizationInput.value = state.config.authorization || '';
   els.libIdInput.value = state.config.lib_id || '';
-  els.openTimeInput.value = state.config.open_time || '07:00:00';
   els.captchaInput.value = state.config.captcha || '';
-  els.fastIntervalInput.value = state.config.fast_interval || 0.45;
-  els.slowIntervalInput.value = state.config.slow_interval || 3;
-  els.burstIntervalInput.value = state.config.burst_interval || 0.25;
+  els.slowIntervalInput.value = state.config.slow_interval || 0.5;
   els.concurrencyInput.value = state.config.concurrency || 2;
   els.candidateLimitInput.value = state.config.candidate_limit || 6;
+  els.cooldownInput.value = state.config.cooldown || 1.2;
   els.preferredSeatsInput.value = state.config.preferred_seats || '';
   els.ntfyInput.value = state.config.ntfy_topic || '';
   renderRooms();
@@ -112,12 +104,10 @@ function collectForm() {
     cookie: els.cookieInput.value.trim(),
     authorization: els.authorizationInput.value.trim(),
     lib_id: Number(els.libIdInput.value || 0),
-    open_time: els.openTimeInput.value || '07:00:00',
-    fast_interval: Math.max(0.15, Number(els.fastIntervalInput.value || 0.45)),
-    slow_interval: Math.max(1, Number(els.slowIntervalInput.value || 3)),
-    burst_interval: Math.max(0.1, Number(els.burstIntervalInput.value || 0.25)),
+    slow_interval: Math.max(0.25, Number(els.slowIntervalInput.value || 0.5)),
     concurrency: clamp(Number(els.concurrencyInput.value || 2), 1, 4),
     candidate_limit: clamp(Number(els.candidateLimitInput.value || 6), 1, 20),
+    cooldown: clamp(Number(els.cooldownInput.value || 1.2), 0.3, 5),
     preferred_seats: els.preferredSeatsInput.value.trim(),
     ntfy_topic: els.ntfyInput.value.trim(),
     captcha: els.captchaInput.value.trim(),
@@ -133,7 +123,7 @@ function updateSummary() {
   const room = getSelectedRoom();
   els.summaryLib.textContent = room ? room.name : state.config.lib_id ? String(state.config.lib_id) : '未配置';
   els.summaryCookie.textContent = state.config.cookie ? '已配置' : '未配置';
-  els.summaryOpenTime.textContent = state.config.open_time || '07:00:00';
+  els.summaryOpenTime.textContent = `${state.config.slow_interval || 0.5} 秒`;
   els.summaryRounds.textContent = String(state.rounds);
 }
 
@@ -207,38 +197,6 @@ function validateConfig() {
   if (!Number(state.config.lib_id)) throw new Error('请先填写阅览室 ID');
 }
 
-function getOpenDate() {
-  const [hour = '7', minute = '0', second = '0'] = String(state.config.open_time || '07:00:00').split(':');
-  const date = new Date();
-  date.setHours(Number(hour), Number(minute), Number(second), 0);
-  if (date.getTime() < Date.now() - 60 * 1000) date.setDate(date.getDate() + 1);
-  return date;
-}
-
-function formatDuration(ms) {
-  if (ms <= 0) return '00:00:00';
-  const total = Math.floor(ms / 1000);
-  const hours = String(Math.floor(total / 3600)).padStart(2, '0');
-  const minutes = String(Math.floor((total % 3600) / 60)).padStart(2, '0');
-  const seconds = String(total % 60).padStart(2, '0');
-  return `${hours}:${minutes}:${seconds}`;
-}
-
-function startCountdown() {
-  clearInterval(state.countdownTimer);
-  const tick = () => {
-    const openDate = getOpenDate();
-    const remaining = openDate.getTime() - Date.now();
-    els.countdown.textContent = formatDuration(remaining);
-
-    if (state.mode === 'scheduled' && !state.running && remaining <= EARLY_START_MS) {
-      startPolling('scheduled');
-    }
-  };
-  tick();
-  state.countdownTimer = setInterval(tick, 250);
-}
-
 async function requestWakeLock() {
   try {
     if ('wakeLock' in navigator && !state.wakeLock) {
@@ -275,8 +233,8 @@ function libLayoutPayload() {
   };
 }
 
-function reservePayload(seatKey, variant = 'reserveSeat') {
-  const fieldName = variant === 'reserueSeat' ? 'reserueSeat' : 'reserveSeat';
+function reservePayload(seatKey) {
+  const fieldName = 'reserueSeat';
   return {
     operationName: fieldName,
     query: `mutation ${fieldName}($libId: Int!, $seatKey: String!, $captchaCode: String, $captcha: String!) {\n userAuth {\n reserve {\n ${fieldName}(libId: $libId, seatKey: $seatKey, captchaCode: $captchaCode, captcha: $captcha)\n }\n }\n}`,
@@ -286,14 +244,6 @@ function reservePayload(seatKey, variant = 'reserveSeat') {
       captchaCode: state.config.captcha || '',
       captcha: state.config.captcha || '',
     },
-  };
-}
-
-function reserveVerifyPayload() {
-  return {
-    operationName: 'reserve',
-    query: 'query reserve {\n userAuth {\n reserve {\n reserve {\n status\n seat_name\n lib_name\n }\n }\n }\n}',
-    variables: {},
   };
 }
 
@@ -348,7 +298,7 @@ function shuffle(items) {
 }
 
 function getReserveValue(result) {
-  const value = result?.data?.userAuth?.reserve?.reserveSeat ?? result?.data?.userAuth?.reserve?.reserueSeat;
+  const value = result?.data?.userAuth?.reserve?.reserueSeat ?? result?.data?.userAuth?.reserve?.reserveSeat;
   return value;
 }
 
@@ -431,7 +381,7 @@ async function runOnce() {
   const freeSeats = pickCandidates(seats.filter(isFreeSeat));
 
   if (!freeSeats.length) {
-    log(`第 ${state.rounds} 轮：没有空位`, 'info');
+    logNoSeat();
     return false;
   }
 
@@ -443,6 +393,13 @@ async function runOnce() {
   }
 
   return false;
+}
+
+function logNoSeat() {
+  const now = Date.now();
+  if (now - state.lastNoSeatLogAt < 4000) return;
+  state.lastNoSeatLogAt = now;
+  log(`第 ${state.rounds} 轮：没有空位`, 'info');
 }
 
 function pickCandidates(seats) {
@@ -498,45 +455,21 @@ async function raceReserveBatch(seats) {
 async function tryReserveSeat(seat) {
   if (state.success) return true;
   const seatName = seat.name || seat.key;
-  const variants = ['reserveSeat', 'reserueSeat'];
-
-  for (const variant of variants) {
-    try {
-      const result = await graphql(reservePayload(seat.key, variant));
-      if (state.success) return true;
-      if (isSuccessResult(result)) {
-        await handleSuccess(seat);
-        return true;
-      }
-
-      const verified = await verifyReservation(seat);
-      if (verified) {
-        await handleSuccess(seat);
-        return true;
-      }
-
-      log(`座位 ${seatName} ${variant} 未确认成功：${getReserveMessage(result)}`, 'warn');
-    } catch (error) {
-      log(`座位 ${seatName} ${variant} 失败：${error.message}`, 'error');
-    }
-  }
-
-  state.seatCooldown[seat.key] = Date.now() + 1500;
-  return false;
-}
-
-async function verifyReservation(seat) {
   try {
-    const data = await graphql(reserveVerifyPayload());
-    const reserve = data?.data?.userAuth?.reserve?.reserve;
-    const seatName = seat.name || seat.key;
-    if (!reserve) return false;
-    if (reserve.status && (!reserve.seat_name || String(reserve.seat_name) === String(seatName))) return true;
-    return String(reserve.seat_name || '') === String(seatName);
+    const result = await graphql(reservePayload(seat.key));
+    if (state.success) return true;
+    if (isSuccessResult(result)) {
+      await handleSuccess(seat);
+      return true;
+    }
+
+    log(`座位 ${seatName} 未成功：${getReserveMessage(result)}`, 'warn');
   } catch (error) {
-    log(`预约结果验证失败：${error.message}`, 'warn');
-    return false;
+    log(`座位 ${seatName} 失败：${error.message}`, 'error');
   }
+
+  state.seatCooldown[seat.key] = Date.now() + (state.config.cooldown || 1.2) * 1000;
+  return false;
 }
 
 function isFreeSeat(seat) {
@@ -594,51 +527,70 @@ async function sendNtfy(message) {
 }
 
 function nextDelay(mode) {
-  const interval = getActiveInterval(mode);
-  const base = interval * 1000;
-  const jitter = Math.floor(Math.random() * Math.min(180, base * 0.25));
-  return Math.max(300, base + jitter + state.backoffMs);
-}
-
-function getActiveInterval(mode) {
-  if (mode === 'leak') return state.config.slow_interval;
-  const openDate = getOpenDate();
-  const delta = Date.now() - openDate.getTime();
-  if (delta >= -EARLY_START_MS && delta <= 20 * 1000) {
-    return state.config.burst_interval || state.config.fast_interval;
-  }
-  return state.config.fast_interval;
+  const base = (state.config.slow_interval || 0.5) * 1000;
+  const jitter = Math.floor(Math.random() * Math.min(80, base * 0.15));
+  return Math.max(250, base + jitter + state.backoffMs);
 }
 
 function queueNext(mode) {
   clearTimeout(state.timer);
   if (!state.running) return;
-  state.timer = setTimeout(async () => {
-    try {
-      const success = await runOnce();
-      state.backoffMs = success ? 0 : Math.max(0, state.backoffMs - 250);
-    } catch (error) {
-      state.backoffMs = Math.min(8000, state.backoffMs ? state.backoffMs * 1.7 : 1000);
-      log(`轮询失败：${error.message}，退避 ${Math.round(state.backoffMs / 1000)} 秒`, 'error');
-    } finally {
-      queueNext(mode);
-    }
-  }, nextDelay(mode));
+  const delay = nextDelay(mode);
+  if (state.worker) {
+    state.worker.postMessage({ type: 'schedule', delay });
+  } else {
+    state.timer = setTimeout(handlePollTick, delay);
+  }
 }
 
-async function startPolling(mode) {
+async function handlePollTick() {
+  if (!state.running) return;
+  try {
+    const success = await runOnce();
+    state.backoffMs = success ? 0 : Math.max(0, state.backoffMs - 120);
+  } catch (error) {
+    state.backoffMs = Math.min(5000, state.backoffMs ? state.backoffMs * 1.5 : 700);
+    log(`轮询失败：${error.message}，退避 ${Math.round(state.backoffMs / 1000)} 秒`, 'error');
+  } finally {
+    queueNext('leak');
+  }
+}
+
+function ensureWorkerTimer() {
+  if (state.worker || !window.Worker || !window.Blob || !window.URL) return;
+  const code = `
+    let timer = null;
+    self.onmessage = (event) => {
+      if (event.data.type === 'schedule') {
+        clearTimeout(timer);
+        timer = setTimeout(() => self.postMessage({ type: 'tick' }), event.data.delay);
+      }
+      if (event.data.type === 'stop') clearTimeout(timer);
+    };
+  `;
+  const blob = new Blob([code], { type: 'application/javascript' });
+  state.worker = new Worker(URL.createObjectURL(blob));
+  state.worker.onmessage = (event) => {
+    if (event.data?.type === 'tick') handlePollTick();
+  };
+}
+
+async function startPolling() {
   try {
     validateConfig();
     state.success = false;
+    state.seatCooldown = {};
+    ensureWorkerTimer();
     state.running = true;
-    state.mode = mode;
+    state.mode = 'leak';
     state.backoffMs = 0;
-    document.title = mode === 'leak' ? '[捡漏中] 抢座助手' : '[轮询中] 抢座助手';
-    els.modeText.textContent = mode === 'leak' ? '捡漏监控' : '定时抢座';
-    els.stateText.textContent = '轮询运行中，请保持页面前台打开';
+    document.title = '[捡漏中] 捡漏助手';
+    els.countdown.textContent = 'RUN';
+    els.modeText.textContent = '高速捡漏';
+    els.stateText.textContent = '监控中，请保持页面前台更稳';
     await requestWakeLock();
-    log(mode === 'leak' ? '开始捡漏监控' : '开始定时轮询', 'success');
-    queueNext(mode);
+    log('开始高速捡漏监控', 'success');
+    queueNext('leak');
   } catch (error) {
     log(error.message, 'error');
     switchTab('config');
@@ -647,10 +599,12 @@ async function startPolling(mode) {
 
 function stopPolling(writeLog = true) {
   clearTimeout(state.timer);
+  if (state.worker) state.worker.postMessage({ type: 'stop' });
   state.running = false;
   state.mode = 'idle';
   state.backoffMs = 0;
-  document.title = '抢座助手';
+  document.title = '捡漏助手';
+  els.countdown.textContent = 'READY';
   els.modeText.textContent = '已停止';
   els.stateText.textContent = '轮询未运行';
   releaseWakeLock();
@@ -738,29 +692,7 @@ function bindEvents() {
     updateSummary();
   });
 
-  els.scheduleBtn.addEventListener('click', () => {
-    try {
-      validateConfig();
-      state.mode = 'scheduled';
-      els.modeText.textContent = '定时抢座';
-      els.stateText.textContent = `等待 ${state.config.open_time}，提前 5 秒启动`;
-      log('已进入定时抢座模式', 'success');
-      startCountdown();
-    } catch (error) {
-      log(error.message, 'error');
-      switchTab('config');
-    }
-  });
-
-  els.leakBtn.addEventListener('click', () => startPolling('leak'));
-  els.onceBtn.addEventListener('click', async () => {
-    try {
-      log('开始手动抢一次', 'info');
-      await runOnce();
-    } catch (error) {
-      log(`手动抢座失败：${error.message}`, 'error');
-    }
-  });
+  els.leakBtn.addEventListener('click', () => startPolling());
   els.stopBtn.addEventListener('click', () => stopPolling());
   els.clearLogsBtn.addEventListener('click', () => {
     localStorage.removeItem(LOG_KEY);
@@ -809,7 +741,6 @@ function init() {
   updateSummary();
   renderLogs();
   bindEvents();
-  startCountdown();
   testHealth();
 }
 
