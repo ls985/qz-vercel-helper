@@ -58,10 +58,32 @@
         </header>
 
         <form class="form" id="configForm">
+          <section class="login-panel">
+            <div>
+              <span class="label-title">登录获取 Cookie</span>
+              <small>点按钮打开微信授权页，授权后复制跳转后的链接，再粘贴回来解析。</small>
+            </div>
+            <div class="actions compact">
+              <button class="primary" id="openWechatLoginBtn" type="button">打开微信登录</button>
+              <button id="copyLoginLinkBtn" type="button">复制登录链接</button>
+            </div>
+          </section>
+
+          <label>
+            <span>微信回调链接</span>
+            <textarea id="authUrlInput" rows="3" placeholder="授权后复制浏览器地址栏里的完整链接，通常包含 code=..."></textarea>
+            <small>参考 igolib：从回调链接提取 code，代理请求 urlNew/auth.html 换 Cookie。</small>
+          </label>
+
+          <div class="actions compact">
+            <button class="primary" id="exchangeCookieBtn" type="button">解析登录并获取阅览室</button>
+            <button id="refreshRoomsBtn" type="button">刷新阅览室</button>
+          </div>
+
           <label>
             <span>Cookie</span>
             <textarea id="cookieInput" rows="4" placeholder="wechatSESS_ID=xxx; SERVERID=xxx"></textarea>
-            <small>保存在本机浏览器，只通过你的 Vercel 代理转发到我去图书馆接口。</small>
+            <small>一般不用手填。Cookie 只保存在本机浏览器，通过你的 Vercel 代理转发。</small>
           </label>
 
           <label>
@@ -71,9 +93,17 @@
           </label>
 
           <label>
+            <span>阅览室</span>
+            <select id="roomSelect">
+              <option value="">请先登录并获取阅览室</option>
+            </select>
+            <small id="roomHint">登录后会自动读取当前账号可用阅览室。</small>
+          </label>
+
+          <label class="advanced-field">
             <span>阅览室 ID</span>
-            <input id="libIdInput" type="number" min="1" inputmode="numeric" placeholder="例如 1234" />
-            <small>对应 GraphQL 里的 lib_id。</small>
+            <input id="libIdInput" type="number" min="1" inputmode="numeric" placeholder="自动选择后填入" />
+            <small>高级兜底：自动列表失败时可手动填写 lib_id。</small>
           </label>
 
           <div class="form-row">
@@ -108,15 +138,9 @@
             <small>抢到后向 https://ntfy.sh/频道 推送提醒。</small>
           </label>
 
-          <label>
-            <span>授权链接换 Cookie</span>
-            <textarea id="authUrlInput" rows="3" placeholder="粘贴 wechat.v2.traceint.com/urlNew/auth.html?..."></textarea>
-            <small>可选。仅用于换取 Cookie，服务器不会保存。</small>
-          </label>
-
           <div class="actions compact">
             <button class="primary" id="saveBtn" type="submit">保存配置</button>
-            <button id="exchangeCookieBtn" type="button">链接换 Cookie</button>
+            <button id="clearCookieBtn" type="button">清除登录</button>
           </div>
         </form>
       </section>
