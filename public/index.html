@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#101318" />
+    <title>抢座助手</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="view view-active" id="view-home" aria-label="首页">
+        <header class="topbar">
+          <div>
+            <p class="kicker">我去图书馆</p>
+            <h1>抢座助手</h1>
+          </div>
+          <span class="status-pill" id="healthStatus">检测中</span>
+        </header>
+
+        <section class="hero-panel">
+          <p class="muted" id="modeText">定时抢座</p>
+          <div class="countdown" id="countdown">--:--:--</div>
+          <p class="subline" id="stateText">请先保存配置</p>
+        </section>
+
+        <section class="summary-grid">
+          <div class="summary-item">
+            <span>阅览室</span>
+            <strong id="summaryLib">未配置</strong>
+          </div>
+          <div class="summary-item">
+            <span>Cookie</span>
+            <strong id="summaryCookie">未配置</strong>
+          </div>
+          <div class="summary-item">
+            <span>开放时间</span>
+            <strong id="summaryOpenTime">07:00:00</strong>
+          </div>
+          <div class="summary-item">
+            <span>请求次数</span>
+            <strong id="summaryRounds">0</strong>
+          </div>
+        </section>
+
+        <section class="actions">
+          <button class="primary" id="scheduleBtn" type="button">定时抢座</button>
+          <button id="leakBtn" type="button">开始捡漏</button>
+          <button id="onceBtn" type="button">立刻抢一次</button>
+          <button class="danger" id="stopBtn" type="button">停止</button>
+        </section>
+      </section>
+
+      <section class="view" id="view-config" aria-label="配置">
+        <header class="section-header">
+          <h2>配置</h2>
+          <button id="testConfigBtn" type="button">测试连接</button>
+        </header>
+
+        <form class="form" id="configForm">
+          <label>
+            <span>Cookie</span>
+            <textarea id="cookieInput" rows="4" placeholder="wechatSESS_ID=xxx; SERVERID=xxx"></textarea>
+            <small>保存在本机浏览器，只通过你的 Vercel 代理转发到我去图书馆接口。</small>
+          </label>
+
+          <label>
+            <span>Authorization</span>
+            <input id="authorizationInput" type="text" placeholder="Bearer xxx，可留空" />
+            <small>如果抓包里有 Authorization 就填写；没有可以留空。</small>
+          </label>
+
+          <label>
+            <span>阅览室 ID</span>
+            <input id="libIdInput" type="number" min="1" inputmode="numeric" placeholder="例如 1234" />
+            <small>对应 GraphQL 里的 lib_id。</small>
+          </label>
+
+          <div class="form-row">
+            <label>
+              <span>开放时间</span>
+              <input id="openTimeInput" type="time" step="1" value="07:00:00" />
+              <small>定时模式会提前 5 秒启动。</small>
+            </label>
+            <label>
+              <span>验证码</span>
+              <input id="captchaInput" type="text" placeholder="通常留空" />
+              <small>接口强制验证码时再填。</small>
+            </label>
+          </div>
+
+          <div class="form-row">
+            <label>
+              <span>快速间隔</span>
+              <input id="fastIntervalInput" type="number" min="0.3" step="0.1" value="0.8" />
+              <small>秒，自动加少量随机抖动。</small>
+            </label>
+            <label>
+              <span>捡漏间隔</span>
+              <input id="slowIntervalInput" type="number" min="1" step="0.5" value="3" />
+              <small>秒，请勿过高频。</small>
+            </label>
+          </div>
+
+          <label>
+            <span>ntfy.sh 频道</span>
+            <input id="ntfyInput" type="text" placeholder="可选，例如 my-seat-topic" />
+            <small>抢到后向 https://ntfy.sh/频道 推送提醒。</small>
+          </label>
+
+          <label>
+            <span>授权链接换 Cookie</span>
+            <textarea id="authUrlInput" rows="3" placeholder="粘贴 wechat.v2.traceint.com/urlNew/auth.html?..."></textarea>
+            <small>可选。仅用于换取 Cookie，服务器不会保存。</small>
+          </label>
+
+          <div class="actions compact">
+            <button class="primary" id="saveBtn" type="submit">保存配置</button>
+            <button id="exchangeCookieBtn" type="button">链接换 Cookie</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="view" id="view-logs" aria-label="日志">
+        <header class="section-header">
+          <h2>日志</h2>
+          <button id="clearLogsBtn" type="button">清空</button>
+        </header>
+        <ol class="log-list" id="logList"></ol>
+      </section>
+    </main>
+
+    <nav class="tabbar" aria-label="底部导航">
+      <button class="tab-active" data-tab="home" type="button">首页</button>
+      <button data-tab="config" type="button">配置</button>
+      <button data-tab="logs" type="button">日志</button>
+    </nav>
+
+    <dialog class="success-dialog" id="successDialog">
+      <h2>抢到座位了</h2>
+      <p id="successText">请尽快确认预约状态。</p>
+      <button class="primary" id="closeSuccessBtn" type="button">知道了</button>
+    </dialog>
+
+    <script src="./script.js"></script>
+  </body>
+</html>
