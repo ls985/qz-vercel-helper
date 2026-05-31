@@ -61,7 +61,8 @@ button.danger {
 }
 
 input,
-textarea {
+textarea,
+select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -76,7 +77,8 @@ textarea {
 }
 
 input:focus,
-textarea:focus {
+textarea:focus,
+select:focus {
   border-color: var(--accent-2);
 }
 
@@ -211,6 +213,25 @@ label span {
   display: block;
   margin-bottom: 8px;
   font-weight: 700;
+}
+
+.label-title {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+
+.login-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(119, 167, 255, 0.28);
+  border-radius: var(--radius);
+  background: rgba(119, 167, 255, 0.08);
+  padding: 14px;
+}
+
+.advanced-field {
+  opacity: 0.86;
 }
 
 small {
