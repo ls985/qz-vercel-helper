@@ -253,17 +253,25 @@ function libLayoutPayload() {
   };
 }
 
-function reservePayload(seatKey) {
+function reservePayload(seatKey, variant = 'reserveSeat') {
+  const fieldName = variant === 'reserueSeat' ? 'reserueSeat' : 'reserveSeat';
   return {
-    operationName: 'reserveSeat',
-    query:
-      'mutation reserveSeat($libId: Int!, $seatKey: String!, $captchaCode: String, $captcha: String!) {\n userAuth {\n reserve {\n reserveSeat(libId: $libId, seatKey: $seatKey, captchaCode: $captchaCode, captcha: $captcha)\n }\n }\n}',
+    operationName: fieldName,
+    query: `mutation ${fieldName}($libId: Int!, $seatKey: String!, $captchaCode: String, $captcha: String!) {\n userAuth {\n reserve {\n ${fieldName}(libId: $libId, seatKey: $seatKey, captchaCode: $captchaCode, captcha: $captcha)\n }\n }\n}`,
     variables: {
       seatKey,
       libId: Number(state.config.lib_id),
       captchaCode: state.config.captcha || '',
       captcha: state.config.captcha || '',
     },
+  };
+}
+
+function reserveVerifyPayload() {
+  return {
+    operationName: 'reserve',
+    query: 'query reserve {\n userAuth {\n reserve {\n reserve {\n status\n seat_name\n lib_name\n }\n }\n }\n}',
+    variables: {},
   };
 }
 
@@ -317,11 +325,23 @@ function shuffle(items) {
   return result;
 }
 
-function isSuccessResult(result) {
+function getReserveValue(result) {
   const value = result?.data?.userAuth?.reserve?.reserveSeat ?? result?.data?.userAuth?.reserve?.reserueSeat;
+  return value;
+}
+
+function isSuccessResult(result) {
+  const value = getReserveValue(result);
   if (value === true) return true;
   if (typeof value === 'string') return /成功|预约|ok|true/i.test(value);
   return Boolean(value?.success || value?.status === true);
+}
+
+function getReserveMessage(result) {
+  const value = getReserveValue(result);
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object') return value.message || value.msg || JSON.stringify(value);
+  return value === undefined ? '无返回字段' : String(value);
 }
 
 async function refreshRooms() {
@@ -394,19 +414,52 @@ async function runOnce() {
 
   log(`第 ${state.rounds} 轮：发现 ${freeSeats.length} 个空位，开始尝试`, 'success');
   for (const seat of freeSeats) {
+    const reserved = await tryReserveSeat(seat);
+    if (reserved) return true;
+  }
+
+  return false;
+}
+
+async function tryReserveSeat(seat) {
+  const seatName = seat.name || seat.key;
+  const variants = ['reserveSeat', 'reserueSeat'];
+
+  for (const variant of variants) {
     try {
-      const result = await graphql(reservePayload(seat.key));
+      const result = await graphql(reservePayload(seat.key, variant));
       if (isSuccessResult(result)) {
         await handleSuccess(seat);
         return true;
       }
-      log(`座位 ${seat.name || seat.key} 未成功，继续尝试`, 'warn');
+
+      const verified = await verifyReservation(seat);
+      if (verified) {
+        await handleSuccess(seat);
+        return true;
+      }
+
+      log(`座位 ${seatName} ${variant} 未确认成功：${getReserveMessage(result)}`, 'warn');
     } catch (error) {
-      log(`座位 ${seat.name || seat.key} 失败：${error.message}`, 'error');
+      log(`座位 ${seatName} ${variant} 失败：${error.message}`, 'error');
     }
   }
 
   return false;
+}
+
+async function verifyReservation(seat) {
+  try {
+    const data = await graphql(reserveVerifyPayload());
+    const reserve = data?.data?.userAuth?.reserve?.reserve;
+    const seatName = seat.name || seat.key;
+    if (!reserve) return false;
+    if (reserve.status && (!reserve.seat_name || String(reserve.seat_name) === String(seatName))) return true;
+    return String(reserve.seat_name || '') === String(seatName);
+  } catch (error) {
+    log(`预约结果验证失败：${error.message}`, 'warn');
+    return false;
+  }
 }
 
 function isFreeSeat(seat) {
@@ -414,7 +467,7 @@ function isFreeSeat(seat) {
   if (seat.seat_status !== undefined && seat.seat_status !== null) {
     return Number(seat.seat_status) === 1;
   }
-  return seat.status === false;
+  return seat.status === false || seat.status === 0 || seat.status === 'false';
 }
 
 async function handleSuccess(seat) {
