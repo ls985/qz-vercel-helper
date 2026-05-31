@@ -24,23 +24,22 @@
 
 - `ALLOWED_ORIGINS`：限制允许访问 API 的前端来源，例如 `https://your-app.vercel.app`。不填默认 `*`。
 
-## Cookie 获取建议
+## 登录和阅览室获取
 
-最稳的方式是只获取你自己账号的登录态：
+本项目参考 igolib 的思路，默认不需要手动抓包：
 
-1. 在微信里打开“我去图书馆”，进入网页端。
-2. 复制授权跳转链接，常见形态类似：
+1. 打开部署后的页面，进入“配置”。
+2. 点“打开微信登录”，或点“复制登录链接”后发到微信里打开。
+3. 微信授权后，复制跳转后的完整链接。链接里通常会包含 `code=...`。
+4. 粘贴到“微信回调链接”，点“解析登录并获取阅览室”。
+5. 页面会从回调链接提取 `code`，请求 `urlNew/auth.html` 换取 Cookie，然后自动调用 `libs(libType: -1)` 读取阅览室列表。
+6. 在“阅览室”下拉框里选择目标阅览室并保存。
 
-   ```text
-   https://wechat.v2.traceint.com/urlNew/auth.html?code=...&state=...
-   ```
+如果自动登录失败，再使用浏览器开发者工具或抓包工具复制请求里的 Cookie，手动填入：
 
-3. 在本工具“配置”页粘贴到“授权链接换 Cookie”，点“链接换 Cookie”。
-4. 如果换取失败，就用浏览器开发者工具或抓包工具复制请求里的 Cookie，手动填入：
-
-   ```text
-   wechatSESS_ID=xxx; SERVERID=xxx
-   ```
+```text
+wechatSESS_ID=xxx; SERVERID=xxx
+```
 
 注意：浏览器不允许前端 JS 直接设置 `Cookie` 请求头，所以本项目使用 `X-Trace-Cookie` 发给自己的 Vercel 代理，再由代理请求上游。
 
