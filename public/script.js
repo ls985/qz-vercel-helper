@@ -1,6 +1,8 @@
 const STORAGE_KEY = 'qz-helper-config-v2';
 const LOG_KEY = 'qz-helper-logs-v2';
 const EARLY_START_MS = 5000;
+const OFFICIAL_WX_APP_ID = 'wx2996d437cd442527';
+const OFFICIAL_GRAPHQL_URL = 'https://wechat.v2.traceint.com/index.php/graphql/';
 
 const defaultConfig = {
   cookie: '',
@@ -11,6 +13,7 @@ const defaultConfig = {
   slow_interval: 3,
   ntfy_topic: '',
   captcha: '',
+  rooms: [],
 };
 
 const state = {
@@ -42,6 +45,8 @@ const els = {
   configForm: $('configForm'),
   cookieInput: $('cookieInput'),
   authorizationInput: $('authorizationInput'),
+  roomSelect: $('roomSelect'),
+  roomHint: $('roomHint'),
   libIdInput: $('libIdInput'),
   openTimeInput: $('openTimeInput'),
   captchaInput: $('captchaInput'),
@@ -49,6 +54,10 @@ const els = {
   slowIntervalInput: $('slowIntervalInput'),
   ntfyInput: $('ntfyInput'),
   authUrlInput: $('authUrlInput'),
+  openWechatLoginBtn: $('openWechatLoginBtn'),
+  copyLoginLinkBtn: $('copyLoginLinkBtn'),
+  refreshRoomsBtn: $('refreshRoomsBtn'),
+  clearCookieBtn: $('clearCookieBtn'),
   saveBtn: $('saveBtn'),
   exchangeCookieBtn: $('exchangeCookieBtn'),
   testConfigBtn: $('testConfigBtn'),
@@ -81,6 +90,7 @@ function fillForm() {
   els.fastIntervalInput.value = state.config.fast_interval || 0.8;
   els.slowIntervalInput.value = state.config.slow_interval || 3;
   els.ntfyInput.value = state.config.ntfy_topic || '';
+  renderRooms();
 }
 
 function collectForm() {
@@ -93,14 +103,40 @@ function collectForm() {
     slow_interval: Math.max(1, Number(els.slowIntervalInput.value || 3)),
     ntfy_topic: els.ntfyInput.value.trim(),
     captcha: els.captchaInput.value.trim(),
+    rooms: state.config.rooms || [],
   };
 }
 
 function updateSummary() {
-  els.summaryLib.textContent = state.config.lib_id ? String(state.config.lib_id) : '未配置';
+  const room = getSelectedRoom();
+  els.summaryLib.textContent = room ? room.name : state.config.lib_id ? String(state.config.lib_id) : '未配置';
   els.summaryCookie.textContent = state.config.cookie ? '已配置' : '未配置';
   els.summaryOpenTime.textContent = state.config.open_time || '07:00:00';
   els.summaryRounds.textContent = String(state.rounds);
+}
+
+function getSelectedRoom() {
+  return (state.config.rooms || []).find((room) => Number(room.id) === Number(state.config.lib_id));
+}
+
+function renderRooms() {
+  const rooms = state.config.rooms || [];
+  if (!rooms.length) {
+    els.roomSelect.innerHTML = '<option value="">请先登录并获取阅览室</option>';
+    els.roomHint.textContent = state.config.cookie ? '未读取到阅览室，可点刷新或手动填写 ID。' : '登录后会自动读取当前账号可用阅览室。';
+    els.roomSelect.value = '';
+    return;
+  }
+
+  const sorted = [...rooms].sort((a, b) => String(a.name).localeCompare(String(b.name), 'zh-CN', { numeric: true }));
+  els.roomSelect.innerHTML = sorted
+    .map((room) => {
+      const count = Number.isFinite(Number(room.available)) ? `，${room.available} 座可用` : '';
+      return `<option value="${escapeHtml(room.id)}">${escapeHtml(room.name)}${count}</option>`;
+    })
+    .join('');
+  els.roomSelect.value = String(state.config.lib_id || sorted[0].id);
+  els.roomHint.textContent = `已读取 ${rooms.length} 个阅览室。`;
 }
 
 function log(message, type = 'info') {
@@ -212,22 +248,31 @@ function libLayoutPayload() {
   return {
     operationName: 'libLayout',
     query:
-      'query libLayout($libId: Int, $libType: Int) {\n userAuth {\n reserve {\n libs(libType: $libType, libId: $libId) {\n lib_id\n lib_name\n lib_floor\n is_open\n lib_layout {\n seats_total\n seats_booking\n seats_used\n seats {\n key\n name\n type\n status\n x\n y\n }\n }\n }\n }\n }\n}',
-    variables: { libId: Number(state.config.lib_id) },
+      'query libLayout($libId: Int, $libType: Int) {\n userAuth {\n reserve {\n libs(libType: $libType, libId: $libId) {\n lib_id\n lib_name\n lib_floor\n is_open\n lib_layout {\n seats_total\n seats_booking\n seats_used\n seats {\n key\n name\n type\n status\n seat_status\n x\n y\n }\n }\n }\n }\n }\n}',
+    variables: { libId: Number(state.config.lib_id), libType: -1 },
   };
 }
 
 function reservePayload(seatKey) {
   return {
-    operationName: 'reserueSeat',
+    operationName: 'reserveSeat',
     query:
-      'mutation reserueSeat($libId: Int!, $seatKey: String!, $captchaCode: String, $captcha: String!) {\n userAuth {\n reserve {\n reserueSeat(libId: $libId, seatKey: $seatKey, captchaCode: $captchaCode, captcha: $captcha)\n }\n }\n}',
+      'mutation reserveSeat($libId: Int!, $seatKey: String!, $captchaCode: String, $captcha: String!) {\n userAuth {\n reserve {\n reserveSeat(libId: $libId, seatKey: $seatKey, captchaCode: $captchaCode, captcha: $captcha)\n }\n }\n}',
     variables: {
       seatKey,
       libId: Number(state.config.lib_id),
       captchaCode: state.config.captcha || '',
       captcha: state.config.captcha || '',
     },
+  };
+}
+
+function roomListPayload() {
+  return {
+    operationName: 'list',
+    query:
+      'query list {\n userAuth {\n reserve {\n libs(libType: -1) {\n lib_id\n lib_name\n is_open\n lib_rt {\n seats_has\n }\n }\n }\n }\n}',
+    variables: {},
   };
 }
 
@@ -273,10 +318,64 @@ function shuffle(items) {
 }
 
 function isSuccessResult(result) {
-  const value = result?.data?.userAuth?.reserve?.reserueSeat;
+  const value = result?.data?.userAuth?.reserve?.reserveSeat ?? result?.data?.userAuth?.reserve?.reserueSeat;
   if (value === true) return true;
   if (typeof value === 'string') return /成功|预约|ok|true/i.test(value);
   return Boolean(value?.success || value?.status === true);
+}
+
+async function refreshRooms() {
+  if (!state.config.cookie) {
+    log('请先登录获取 Cookie', 'warn');
+    return;
+  }
+
+  els.refreshRoomsBtn.disabled = true;
+  els.refreshRoomsBtn.textContent = '刷新中';
+  try {
+    const data = await graphql(roomListPayload());
+    const libs = data?.data?.userAuth?.reserve?.libs || [];
+    const rooms = libs.map((lib) => ({
+      id: Number(lib.lib_id),
+      name: lib.lib_name || `阅览室 ${lib.lib_id}`,
+      available: Number(lib.lib_rt?.seats_has ?? 0),
+      is_open: Boolean(lib.is_open),
+    }));
+
+    if (!rooms.length) throw new Error('当前账号没有返回阅览室列表');
+    const exists = rooms.some((room) => Number(room.id) === Number(state.config.lib_id));
+    state.config.rooms = rooms;
+    if (!exists) state.config.lib_id = rooms[0].id;
+    saveConfig();
+    fillForm();
+    updateSummary();
+    log(`已自动读取 ${rooms.length} 个阅览室`, 'success');
+  } catch (error) {
+    log(`读取阅览室失败：${error.message}`, 'error');
+  } finally {
+    els.refreshRoomsBtn.disabled = false;
+    els.refreshRoomsBtn.textContent = '刷新阅览室';
+  }
+}
+
+function buildWechatLoginUrl() {
+  const apiUrl = new URL(OFFICIAL_GRAPHQL_URL);
+  const cleanPath = apiUrl.pathname.replace(/\/$/, '');
+  const redirectUri = encodeURIComponent(`${apiUrl.protocol}//${apiUrl.host}${cleanPath}`);
+  return `https://open.weixin.qq.com/connect/oauth2/authorize?appid=${OFFICIAL_WX_APP_ID}&redirect_uri=${redirectUri}&response_type=code&scope=snsapi_userinfo&state=1#wechat_redirect`;
+}
+
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const input = document.createElement('textarea');
+  input.value = text;
+  document.body.appendChild(input);
+  input.select();
+  document.execCommand('copy');
+  input.remove();
 }
 
 async function runOnce() {
@@ -286,7 +385,7 @@ async function runOnce() {
 
   const layout = await graphql(libLayoutPayload());
   const seats = getSeats(layout);
-  const freeSeats = shuffle(seats.filter((seat) => Number(seat.type) === 1 && seat.status === false));
+  const freeSeats = shuffle(seats.filter(isFreeSeat));
 
   if (!freeSeats.length) {
     log(`第 ${state.rounds} 轮：没有空位`, 'info');
@@ -308,6 +407,14 @@ async function runOnce() {
   }
 
   return false;
+}
+
+function isFreeSeat(seat) {
+  if (Number(seat.type) !== 1) return false;
+  if (seat.seat_status !== undefined && seat.seat_status !== null) {
+    return Number(seat.seat_status) === 1;
+  }
+  return seat.status === false;
 }
 
 async function handleSuccess(seat) {
@@ -441,7 +548,8 @@ async function exchangeCookie() {
     state.config = { ...state.config, ...collectForm(), cookie: data.cookie };
     saveConfig();
     updateSummary();
-    log('已通过授权链接换取 Cookie 并保存', 'success');
+    log('已通过微信回调链接换取 Cookie', 'success');
+    await refreshRooms();
   } catch (error) {
     log(`换取 Cookie 失败：${error.message}`, 'error');
   } finally {
@@ -467,9 +575,23 @@ function bindEvents() {
     event.preventDefault();
     state.config = collectForm();
     saveConfig();
+    renderRooms();
     updateSummary();
     log('配置已保存', 'success');
     switchTab('home');
+  });
+
+  els.roomSelect.addEventListener('change', () => {
+    els.libIdInput.value = els.roomSelect.value;
+    state.config = { ...state.config, ...collectForm(), lib_id: Number(els.roomSelect.value || 0) };
+    saveConfig();
+    updateSummary();
+  });
+
+  els.libIdInput.addEventListener('change', () => {
+    state.config = { ...state.config, ...collectForm() };
+    renderRooms();
+    updateSummary();
   });
 
   els.scheduleBtn.addEventListener('click', () => {
@@ -502,6 +624,34 @@ function bindEvents() {
   });
   els.testConfigBtn.addEventListener('click', testHealth);
   els.exchangeCookieBtn.addEventListener('click', exchangeCookie);
+  els.refreshRoomsBtn.addEventListener('click', () => {
+    state.config = { ...state.config, ...collectForm() };
+    saveConfig();
+    refreshRooms();
+  });
+  els.openWechatLoginBtn.addEventListener('click', () => {
+    const loginUrl = buildWechatLoginUrl();
+    window.open(loginUrl, '_blank', 'noopener,noreferrer');
+    log('已打开微信登录链接；授权后复制回调链接粘贴回来', 'info');
+  });
+  els.copyLoginLinkBtn.addEventListener('click', async () => {
+    try {
+      await copyText(buildWechatLoginUrl());
+      log('微信登录链接已复制', 'success');
+    } catch (error) {
+      log(`复制失败：${error.message}`, 'error');
+    }
+  });
+  els.clearCookieBtn.addEventListener('click', () => {
+    state.config.cookie = '';
+    state.config.authorization = '';
+    state.config.lib_id = '';
+    state.config.rooms = [];
+    saveConfig();
+    fillForm();
+    updateSummary();
+    log('已清除登录信息', 'warn');
+  });
   els.closeSuccessBtn.addEventListener('click', () => els.successDialog.close());
   document.addEventListener('visibilitychange', restoreWakeLock);
 }
@@ -509,6 +659,7 @@ function bindEvents() {
 function init() {
   loadConfig();
   fillForm();
+  renderRooms();
   updateSummary();
   renderLogs();
   bindEvents();
