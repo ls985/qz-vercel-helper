@@ -2,7 +2,7 @@ const https = require('https');
 
 const MAX_REDIRECTS = 6;
 const DEFAULT_UA =
-  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.49';
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36 NetType/WIFI MicroMessenger/7.0.20.1781 WindowsWechat XWEB/8391';
 const ALLOWED_HOSTS = new Set(['wechat.v2.traceint.com', 'web.traceint.com']);
 
 function setCors(req, res) {
@@ -61,6 +61,17 @@ function parseCookie(setCookie) {
     .join('; ');
 }
 
+function mergeCookies(cookieJar, setCookie) {
+  for (const item of setCookie) {
+    const cookie = item.split(';')[0].trim();
+    if (!cookie) continue;
+    const key = cookie.split('=')[0];
+    const index = cookieJar.findIndex((oldItem) => oldItem.startsWith(`${key}=`));
+    if (index >= 0) cookieJar[index] = cookie;
+    else cookieJar.push(cookie);
+  }
+}
+
 function isAllowedUrl(url) {
   return url.protocol === 'https:' && ALLOWED_HOSTS.has(url.hostname);
 }
@@ -103,12 +114,7 @@ async function follow(url, cookieJar, redirectsLeft) {
   }
 
   const result = await requestOnce(url, cookieJar);
-  for (const item of result.setCookie) {
-    const key = item.split('=')[0];
-    const index = cookieJar.findIndex((oldItem) => oldItem.startsWith(`${key}=`));
-    if (index >= 0) cookieJar[index] = item;
-    else cookieJar.push(item);
-  }
+  mergeCookies(cookieJar, result.setCookie);
 
   if ([301, 302, 303, 307, 308].includes(result.statusCode) && result.location && redirectsLeft > 0) {
     const next = new URL(result.location, url);
@@ -116,6 +122,26 @@ async function follow(url, cookieJar, redirectsLeft) {
   }
 
   return result;
+}
+
+function buildAuthUrlFromCallback(callbackUrl) {
+  const cleanUrl = String(callbackUrl || '').replace(/\\/g, '');
+  const url = new URL(cleanUrl);
+  const code = url.searchParams.get('code');
+
+  if (!code) return url;
+  if (!ALLOWED_HOSTS.has(url.hostname)) {
+    throw new Error('仅允许 traceint.com 的微信回调链接');
+  }
+
+  const target = `https://${url.hostname}`;
+  const params = new URLSearchParams({
+    r: `${target}/web/index.html`,
+    code,
+    state: url.searchParams.get('state') || '1',
+  });
+
+  return new URL(`${target}/index.php/urlNew/auth.html?${params.toString()}`);
 }
 
 module.exports = async function handler(req, res) {
@@ -136,8 +162,10 @@ module.exports = async function handler(req, res) {
 
   try {
     const body = await readJson(req);
-    const authUrl = new URL(String(body.url || ''));
+    const authUrl = buildAuthUrlFromCallback(body.url);
     const cookieJar = [];
+    const baseUrl = new URL(`${authUrl.protocol}//${authUrl.hostname}/`);
+    await follow(baseUrl, cookieJar, 0);
     const finalResult = await follow(authUrl, cookieJar, MAX_REDIRECTS);
     const cookie = parseCookie(cookieJar);
 
