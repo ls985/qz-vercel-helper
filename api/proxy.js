@@ -81,18 +81,25 @@ module.exports = async function handler(req, res) {
       return;
     }
 
+    const upstreamHeaders = {
+      Host: 'wechat.v2.traceint.com',
+      Origin: 'https://web.traceint.com',
+      Referer: 'https://web.traceint.com/',
+      'User-Agent': traceUa,
+      Cookie: traceCookie,
+      'Content-Type': 'application/json',
+      'App-Version': '2.2.5',
+      'app-version': '2.2.5',
+      Accept: 'application/json, text/plain, */*',
+    };
+
+    if (traceAuthorization) {
+      upstreamHeaders.Authorization = traceAuthorization;
+    }
+
     const upstream = await fetch(TRACE_GRAPHQL_URL, {
       method: 'POST',
-      headers: {
-        Host: 'wechat.v2.traceint.com',
-        Origin: 'https://web.traceint.com',
-        Referer: 'https://web.traceint.com/web/index.html',
-        'User-Agent': traceUa,
-        Cookie: traceCookie,
-        Authorization: traceAuthorization,
-        'Content-Type': 'application/json',
-        Accept: 'application/json, text/plain, */*',
-      },
+      headers: upstreamHeaders,
       body: rawBody,
     });
 
