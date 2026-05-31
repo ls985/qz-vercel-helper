@@ -13,14 +13,14 @@
         <header class="topbar">
           <div>
             <p class="kicker">我去图书馆</p>
-            <h1>抢座助手</h1>
+            <h1>捡漏助手</h1>
           </div>
           <span class="status-pill" id="healthStatus">检测中</span>
         </header>
 
         <section class="hero-panel">
-          <p class="muted" id="modeText">定时抢座</p>
-          <div class="countdown" id="countdown">--:--:--</div>
+          <p class="muted" id="modeText">捡漏监控</p>
+          <div class="countdown" id="countdown">READY</div>
           <p class="subline" id="stateText">请先保存配置</p>
         </section>
 
@@ -34,8 +34,8 @@
             <strong id="summaryCookie">未配置</strong>
           </div>
           <div class="summary-item">
-            <span>开放时间</span>
-            <strong id="summaryOpenTime">07:00:00</strong>
+            <span>轮询间隔</span>
+            <strong id="summaryOpenTime">0.5 秒</strong>
           </div>
           <div class="summary-item">
             <span>请求次数</span>
@@ -44,9 +44,7 @@
         </section>
 
         <section class="actions">
-          <button class="primary" id="scheduleBtn" type="button">定时抢座</button>
-          <button id="leakBtn" type="button">开始捡漏</button>
-          <button id="onceBtn" type="button">立刻抢一次</button>
+          <button class="primary" id="leakBtn" type="button">开始捡漏</button>
           <button class="danger" id="stopBtn" type="button">停止</button>
         </section>
       </section>
@@ -108,35 +106,9 @@
 
           <div class="form-row">
             <label>
-              <span>开放时间</span>
-              <input id="openTimeInput" type="time" step="1" value="07:00:00" />
-              <small>定时模式会提前 5 秒启动。</small>
-            </label>
-            <label>
-              <span>验证码</span>
-              <input id="captchaInput" type="text" placeholder="通常留空" />
-              <small>接口强制验证码时再填。</small>
-            </label>
-          </div>
-
-          <div class="form-row">
-            <label>
-              <span>快速间隔</span>
-              <input id="fastIntervalInput" type="number" min="0.15" step="0.05" value="0.45" />
-              <small>秒，定时开抢主轮询间隔。</small>
-            </label>
-            <label>
               <span>捡漏间隔</span>
-              <input id="slowIntervalInput" type="number" min="1" step="0.5" value="3" />
-              <small>秒，请勿过高频。</small>
-            </label>
-          </div>
-
-          <div class="form-row">
-            <label>
-              <span>冲刺间隔</span>
-              <input id="burstIntervalInput" type="number" min="0.1" step="0.05" value="0.25" />
-              <small>秒，开放前后短时间使用。</small>
+              <input id="slowIntervalInput" type="number" min="0.25" step="0.05" value="0.5" />
+              <small>秒，每轮查询间隔，默认偏激进。</small>
             </label>
             <label>
               <span>并发数</span>
@@ -152,9 +124,22 @@
               <small>减少无效遍历，抢最有希望的一批。</small>
             </label>
             <label>
+              <span>失败冷却</span>
+              <input id="cooldownInput" type="number" min="0.3" max="5" step="0.1" value="1.2" />
+              <small>秒，失败座位短暂跳过。</small>
+            </label>
+          </div>
+
+          <div class="form-row">
+            <label>
               <span>偏好座位</span>
               <input id="preferredSeatsInput" type="text" placeholder="如 101,102,103" />
               <small>优先尝试这些座位号，可留空。</small>
+            </label>
+            <label>
+              <span>验证码</span>
+              <input id="captchaInput" type="text" placeholder="通常留空" />
+              <small>接口强制验证码时再填。</small>
             </label>
           </div>
 
