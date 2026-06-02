@@ -61,6 +61,10 @@ function parseCookie(setCookie) {
     .join('; ');
 }
 
+function hasAuthCookie(cookie) {
+  return /(?:^|;\s*)(?:wechatSESS_ID|PHPSESSID|.*SESS\w*)=/i.test(cookie);
+}
+
 function mergeCookies(cookieJar, setCookie) {
   for (const item of setCookie) {
     const cookie = item.split(';')[0].trim();
@@ -173,6 +177,18 @@ module.exports = async function handler(req, res) {
       res.statusCode = 422;
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.end(JSON.stringify({ error: 'no_cookie', message: '授权链接没有返回 Cookie' }));
+      return;
+    }
+
+    if (!hasAuthCookie(cookie)) {
+      res.statusCode = 422;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.end(
+        JSON.stringify({
+          error: 'no_auth_cookie',
+          message: '授权链接没有换到登录 Cookie，请重新在微信里打开登录链接并复制最新回调链接',
+        }),
+      );
       return;
     }
 

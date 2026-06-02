@@ -29,6 +29,7 @@ const state = {
   seatCooldown: {},
   success: false,
   lastNoSeatLogAt: 0,
+  reserveFieldName: '',
 };
 
 const $ = (id) => document.getElementById(id);
@@ -233,8 +234,7 @@ function libLayoutPayload() {
   };
 }
 
-function reservePayload(seatKey) {
-  const fieldName = 'reserueSeat';
+function reservePayload(seatKey, fieldName = 'reserveSeat') {
   return {
     operationName: fieldName,
     query: `mutation ${fieldName}($libId: Int!, $seatKey: String!, $captchaCode: String, $captcha: String!) {\n userAuth {\n reserve {\n ${fieldName}(libId: $libId, seatKey: $seatKey, captchaCode: $captchaCode, captcha: $captcha)\n }\n }\n}`,
@@ -300,6 +300,30 @@ function shuffle(items) {
 function getReserveValue(result) {
   const value = result?.data?.userAuth?.reserve?.reserueSeat ?? result?.data?.userAuth?.reserve?.reserveSeat;
   return value;
+}
+
+function isReserveFieldError(error, fieldName) {
+  return new RegExp(`(?:Cannot query field|Unknown field|Field).*${fieldName}`, 'i').test(error.message);
+}
+
+async function reserveSeatRequest(seatKey) {
+  const preferredField = state.reserveFieldName || 'reserveSeat';
+  const fieldNames = [...new Set([preferredField, 'reserveSeat', 'reserueSeat'])];
+
+  for (const fieldName of fieldNames) {
+    try {
+      const result = await graphql(reservePayload(seatKey, fieldName));
+      state.reserveFieldName = fieldName;
+      return result;
+    } catch (error) {
+      if (fieldName === fieldNames[fieldNames.length - 1] || !isReserveFieldError(error, fieldName)) {
+        throw error;
+      }
+      log(`预约接口 ${fieldName} 不可用，已自动切换备用字段`, 'warn');
+    }
+  }
+
+  throw new Error('预约接口字段不可用');
 }
 
 function isSuccessResult(result) {
@@ -456,7 +480,7 @@ async function tryReserveSeat(seat) {
   if (state.success) return true;
   const seatName = seat.name || seat.key;
   try {
-    const result = await graphql(reservePayload(seat.key));
+    const result = await reserveSeatRequest(seat.key);
     if (state.success) return true;
     if (isSuccessResult(result)) {
       await handleSuccess(seat);
