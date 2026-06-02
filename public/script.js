@@ -277,9 +277,25 @@ async function graphql(payload) {
     throw new Error(data.message || data.error || `HTTP ${response.status}`);
   }
   if (data.errors?.length) {
-    throw new Error(data.errors.map((item) => item.message).join('；'));
+    const message = data.errors.map(formatGraphqlError).filter(Boolean).join('；');
+    const error = new Error(message || 'GraphQL 返回空错误');
+    error.graphqlErrors = data.errors;
+    throw error;
   }
   return data;
+}
+
+function formatGraphqlError(error) {
+  if (!error || typeof error !== 'object') return String(error || '');
+  const parts = [
+    error.message,
+    error.debugMessage,
+    error.extensions?.code,
+    error.extensions?.category,
+    error.extensions?.reason,
+  ].filter(Boolean);
+  if (parts.length) return parts.join(' / ');
+  return JSON.stringify(error);
 }
 
 function getSeats(layoutData) {
@@ -303,7 +319,10 @@ function getReserveValue(result) {
 }
 
 function isReserveFieldError(error, fieldName) {
-  return new RegExp(`(?:Cannot query field|Unknown field|Field).*${fieldName}`, 'i').test(error.message);
+  if (new RegExp(`(?:Cannot query field|Unknown field|Field).*${fieldName}`, 'i').test(error.message)) {
+    return true;
+  }
+  return Array.isArray(error.graphqlErrors) && !error.message.replace('GraphQL 返回空错误', '').trim();
 }
 
 async function reserveSeatRequest(seatKey) {
@@ -317,9 +336,10 @@ async function reserveSeatRequest(seatKey) {
       return result;
     } catch (error) {
       if (fieldName === fieldNames[fieldNames.length - 1] || !isReserveFieldError(error, fieldName)) {
+        if (!error.message.trim()) error.message = `${fieldName} 返回空错误`;
         throw error;
       }
-      log(`预约接口 ${fieldName} 不可用，已自动切换备用字段`, 'warn');
+      log(`预约接口 ${fieldName} 返回异常，已自动切换备用字段：${error.message || '空错误'}`, 'warn');
     }
   }
 
@@ -489,7 +509,7 @@ async function tryReserveSeat(seat) {
 
     log(`座位 ${seatName} 未成功：${getReserveMessage(result)}`, 'warn');
   } catch (error) {
-    log(`座位 ${seatName} 失败：${error.message}`, 'error');
+    log(`座位 ${seatName} 失败：${error.message || '接口返回空错误'}`, 'error');
   }
 
   state.seatCooldown[seat.key] = Date.now() + (state.config.cooldown || 1.2) * 1000;
