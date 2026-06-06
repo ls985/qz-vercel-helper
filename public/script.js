@@ -30,6 +30,8 @@ const state = {
   success: false,
   lastNoSeatLogAt: 0,
   reserveFieldName: '',
+  queuePassedAt: 0,
+  queuePromise: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -234,6 +236,15 @@ function libLayoutPayload() {
   };
 }
 
+function prereserveLayoutPayload() {
+  return {
+    operationName: 'libLayout',
+    query:
+      'query libLayout($libId: Int!) {\n userAuth {\n prereserve {\n libLayout(libId: $libId) {\n max_x\n max_y\n seats_booking\n seats_total\n seats_used\n seats {\n key\n name\n type\n status\n seat_status\n x\n y\n }\n }\n }\n }\n}',
+    variables: { libId: Number(state.config.lib_id) },
+  };
+}
+
 function reservePayload(seatKey, fieldName = 'reserveSeat') {
   return {
     operationName: fieldName,
@@ -241,6 +252,20 @@ function reservePayload(seatKey, fieldName = 'reserveSeat') {
     variables: {
       seatKey,
       libId: Number(state.config.lib_id),
+      captchaCode: state.config.captcha || '',
+      captcha: state.config.captcha || '',
+    },
+  };
+}
+
+function prereserveSavePayload(seatKey) {
+  return {
+    operationName: 'save',
+    query:
+      'mutation save($key: String!, $libid: Int!, $captchaCode: String, $captcha: String) {\n userAuth {\n prereserve {\n save(key: $key, libId: $libid, captcha: $captcha, captchaCode: $captchaCode)\n }\n }\n}',
+    variables: {
+      key: seatKey,
+      libid: Number(state.config.lib_id),
       captchaCode: state.config.captcha || '',
       captcha: state.config.captcha || '',
     },
@@ -301,7 +326,9 @@ function formatGraphqlError(error) {
 function getSeats(layoutData) {
   const libs = layoutData?.data?.userAuth?.reserve?.libs || [];
   const lib = libs.find((item) => Number(item.lib_id) === Number(state.config.lib_id)) || libs[0];
-  return lib?.lib_layout?.seats || [];
+  const reserveSeats = lib?.lib_layout?.seats || [];
+  const prereserveSeats = layoutData?.data?.userAuth?.prereserve?.libLayout?.seats || [];
+  return reserveSeats.length ? reserveSeats : prereserveSeats;
 }
 
 function shuffle(items) {
@@ -314,7 +341,10 @@ function shuffle(items) {
 }
 
 function getReserveValue(result) {
-  const value = result?.data?.userAuth?.reserve?.reserueSeat ?? result?.data?.userAuth?.reserve?.reserveSeat;
+  const value =
+    result?.data?.userAuth?.reserve?.reserueSeat ??
+    result?.data?.userAuth?.reserve?.reserveSeat ??
+    result?.data?.userAuth?.prereserve?.save;
   return value;
 }
 
@@ -344,6 +374,47 @@ async function reserveSeatRequest(seatKey) {
   }
 
   throw new Error('预约接口字段不可用');
+}
+
+async function prereserveSaveRequest(seatKey) {
+  await ensurePrereserveQueue();
+  const result = await graphql(prereserveSavePayload(seatKey));
+  return result;
+}
+
+async function ensurePrereserveQueue() {
+  const now = Date.now();
+  if (now - state.queuePassedAt < 1500) return;
+  if (!state.queuePromise) {
+    state.queuePromise = passPrereserveQueue().finally(() => {
+      state.queuePromise = null;
+    });
+  }
+  await state.queuePromise;
+  state.queuePassedAt = Date.now();
+}
+
+async function passPrereserveQueue() {
+  const response = await fetch('/api/queue', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Trace-Cookie': state.config.cookie,
+      'X-Trace-Authorization': state.config.authorization || '',
+    },
+    body: JSON.stringify({}),
+  });
+  const text = await response.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(`排队接口返回非 JSON：${text.slice(0, 120)}`);
+  }
+  if (!response.ok || !data.ok) {
+    throw new Error(data.message || data.error || `排队失败 HTTP ${response.status}`);
+  }
+  log(`预约排队通过：${data.message || 'ok'}`, 'success');
 }
 
 function isSuccessResult(result) {
@@ -420,23 +491,54 @@ async function runOnce() {
   state.rounds += 1;
   updateSummary();
 
-  const layout = await graphql(libLayoutPayload());
-  const seats = getSeats(layout);
-  const freeSeats = pickCandidates(seats.filter(isFreeSeat));
+  const layouts = await loadSeatLayouts();
+  const candidateLayout = layouts
+    .map((layout) => ({
+      ...layout,
+      freeSeats: pickCandidates(layout.seats.filter(isFreeSeat)),
+    }))
+    .find((layout) => layout.freeSeats.length);
 
-  if (!freeSeats.length) {
+  if (!candidateLayout) {
     logNoSeat();
     return false;
   }
 
-  log(`第 ${state.rounds} 轮：尝试 ${freeSeats.length} 个候选空位`, 'success');
-  const batches = chunk(freeSeats, state.config.concurrency || 2);
+  log(`第 ${state.rounds} 轮：${candidateLayout.source} 发现 ${candidateLayout.freeSeats.length} 个候选空位`, 'success');
+  const batches = chunk(candidateLayout.freeSeats, state.config.concurrency || 2);
   for (const batch of batches) {
     const result = await raceReserveBatch(batch);
     if (result) return true;
   }
 
   return false;
+}
+
+async function loadSeatLayouts() {
+  const attempts = [
+    { source: '当天抢座', payload: libLayoutPayload() },
+    { source: '预约选座', payload: prereserveLayoutPayload() },
+  ];
+  const layouts = [];
+  let fallbackError = null;
+
+  for (const attempt of attempts) {
+    try {
+      const layout = await graphql(attempt.payload);
+      const seats = getSeats(layout).map((seat) => ({ ...seat, __source: attempt.source }));
+      if (seats.length) {
+        layouts.push({ seats, source: attempt.source });
+      } else {
+        fallbackError = new Error(`${attempt.source} 没有返回座位布局`);
+      }
+    } catch (error) {
+      fallbackError = error;
+      log(`${attempt.source} 布局读取失败：${error.message}`, 'warn');
+    }
+  }
+
+  if (layouts.length) return layouts;
+  throw fallbackError || new Error('没有读取到座位布局');
 }
 
 function logNoSeat() {
@@ -500,7 +602,7 @@ async function tryReserveSeat(seat) {
   if (state.success) return true;
   const seatName = seat.name || seat.key;
   try {
-    const result = await reserveSeatRequest(seat.key);
+    const result = await submitSeatRequest(seat);
     if (state.success) return true;
     if (isSuccessResult(result)) {
       await handleSuccess(seat);
@@ -516,12 +618,55 @@ async function tryReserveSeat(seat) {
   return false;
 }
 
+async function submitSeatRequest(seat) {
+  const first = seat.__source === '预约选座' ? 'prereserve' : 'reserve';
+  const attempts =
+    first === 'prereserve'
+      ? [
+          ['预约保存', () => prereserveSaveRequest(seat.key)],
+          ['当天抢座', () => reserveSeatRequest(seat.key)],
+        ]
+      : [
+          ['当天抢座', () => reserveSeatRequest(seat.key)],
+          ['预约保存', () => prereserveSaveRequest(seat.key)],
+        ];
+
+  let lastError = null;
+  let lastResult = null;
+  for (const [label, request] of attempts) {
+    try {
+      const result = await request();
+      if (isSuccessResult(result)) return result;
+      lastResult = result;
+      log(`座位 ${seat.name || seat.key} ${label}未成功：${getReserveMessage(result)}`, 'warn');
+    } catch (error) {
+      lastError = error;
+      log(`座位 ${seat.name || seat.key} ${label}失败：${error.message || '接口返回空错误'}`, 'warn');
+    }
+  }
+
+  if (lastResult) return lastResult;
+  throw lastError || new Error('提交选座失败');
+}
+
 function isFreeSeat(seat) {
   if (Number(seat.type) !== 1) return false;
-  if (seat.seat_status !== undefined && seat.seat_status !== null) {
-    return Number(seat.seat_status) === 1;
-  }
-  return seat.status === false || seat.status === 0 || seat.status === 'false';
+  const seatStatusFree = seat.seat_status === undefined || seat.seat_status === null || isFreeSeatStatus(seat.seat_status);
+  const statusFree = seat.status === undefined || seat.status === null || isFreeOccupancyStatus(seat.status);
+  return seatStatusFree && statusFree;
+}
+
+function isFreeSeatStatus(value) {
+  if (typeof value === 'number') return value === 1;
+  const normalized = String(value).trim().toLowerCase();
+  return ['1', 'true', 'free', 'available', 'empty', '空闲', '可选'].includes(normalized);
+}
+
+function isFreeOccupancyStatus(value) {
+  if (typeof value === 'boolean') return value === false;
+  if (typeof value === 'number') return value === 0;
+  const normalized = String(value).trim().toLowerCase();
+  return ['0', 'false', 'free', 'available', 'empty', '空闲', '可选'].includes(normalized);
 }
 
 async function handleSuccess(seat) {
@@ -624,6 +769,8 @@ async function startPolling() {
     validateConfig();
     state.success = false;
     state.seatCooldown = {};
+    state.queuePassedAt = 0;
+    state.queuePromise = null;
     ensureWorkerTimer();
     state.running = true;
     state.mode = 'leak';
