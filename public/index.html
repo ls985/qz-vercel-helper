@@ -35,7 +35,7 @@
           </div>
           <div class="summary-item">
             <span>轮询间隔</span>
-            <strong id="summaryOpenTime">0.5 秒</strong>
+            <strong id="summaryOpenTime">2.5 秒</strong>
           </div>
           <div class="summary-item">
             <span>请求次数</span>
@@ -107,26 +107,26 @@
           <div class="form-row">
             <label>
               <span>捡漏间隔</span>
-              <input id="slowIntervalInput" type="number" min="0.25" step="0.05" value="0.5" />
-              <small>秒，每轮查询间隔，默认偏激进。</small>
+              <input id="slowIntervalInput" type="number" min="1" step="0.5" value="2.5" />
+              <small>秒，每轮查询间隔，默认低风控。</small>
             </label>
             <label>
-              <span>并发数</span>
-              <input id="concurrencyInput" type="number" min="1" max="4" step="1" value="2" />
-              <small>每批同时尝试的座位数。</small>
+              <span>每轮提交</span>
+              <input id="concurrencyInput" type="number" min="1" max="1" step="1" value="1" />
+              <small>固定串行提交，避免像异常流量。</small>
             </label>
           </div>
 
           <div class="form-row">
             <label>
               <span>每轮候选</span>
-              <input id="candidateLimitInput" type="number" min="1" max="20" step="1" value="6" />
-              <small>减少无效遍历，抢最有希望的一批。</small>
+              <input id="candidateLimitInput" type="number" min="1" max="3" step="1" value="1" />
+              <small>每轮只挑少量座位，减少重复提交。</small>
             </label>
             <label>
               <span>失败冷却</span>
-              <input id="cooldownInput" type="number" min="0.3" max="5" step="0.1" value="1.2" />
-              <small>秒，失败座位短暂跳过。</small>
+              <input id="cooldownInput" type="number" min="3" max="30" step="1" value="8" />
+              <small>秒，失败座位不要反复撞。</small>
             </label>
           </div>
 
