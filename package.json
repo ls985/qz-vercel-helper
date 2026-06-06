@@ -3,11 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "description": "Browser-polling seat helper with Vercel API proxy.",
-  "dependencies": {
-    "ws": "^8.17.1"
-  },
   "scripts": {
-    "check": "node --check api/proxy.js && node --check api/queue.js && node --check api/session.js && node --check public/script.js"
+    "check": "node --check api/proxy.js && node --check api/session.js && node --check public/script.js"
   },
   "engines": {
     "node": ">=18"
