@@ -7,10 +7,10 @@ const defaultConfig = {
   cookie: '',
   authorization: '',
   lib_id: '',
-  slow_interval: 0.5,
-  concurrency: 2,
-  candidate_limit: 6,
-  cooldown: 1.2,
+  slow_interval: 2.5,
+  concurrency: 1,
+  candidate_limit: 1,
+  cooldown: 8,
   preferred_seats: '',
   ntfy_topic: '',
   captcha: '',
@@ -30,6 +30,7 @@ const state = {
   success: false,
   lastNoSeatLogAt: 0,
   reserveFieldName: '',
+  guardStopped: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -76,14 +77,25 @@ const els = {
 function loadConfig() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-    state.config = { ...defaultConfig, ...saved };
+    state.config = normalizeConfig({ ...defaultConfig, ...saved });
   } catch {
     state.config = { ...defaultConfig };
   }
 }
 
 function saveConfig() {
+  state.config = normalizeConfig(state.config);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.config));
+}
+
+function normalizeConfig(config) {
+  return {
+    ...config,
+    slow_interval: Math.max(1, Number(config.slow_interval || defaultConfig.slow_interval)),
+    concurrency: 1,
+    candidate_limit: clamp(Number(config.candidate_limit || defaultConfig.candidate_limit), 1, 3),
+    cooldown: clamp(Number(config.cooldown || defaultConfig.cooldown), 3, 30),
+  };
 }
 
 function fillForm() {
@@ -91,10 +103,10 @@ function fillForm() {
   els.authorizationInput.value = state.config.authorization || '';
   els.libIdInput.value = state.config.lib_id || '';
   els.captchaInput.value = state.config.captcha || '';
-  els.slowIntervalInput.value = state.config.slow_interval || 0.5;
-  els.concurrencyInput.value = state.config.concurrency || 2;
-  els.candidateLimitInput.value = state.config.candidate_limit || 6;
-  els.cooldownInput.value = state.config.cooldown || 1.2;
+  els.slowIntervalInput.value = state.config.slow_interval || 2.5;
+  els.concurrencyInput.value = state.config.concurrency || 1;
+  els.candidateLimitInput.value = state.config.candidate_limit || 1;
+  els.cooldownInput.value = state.config.cooldown || 8;
   els.preferredSeatsInput.value = state.config.preferred_seats || '';
   els.ntfyInput.value = state.config.ntfy_topic || '';
   renderRooms();
@@ -105,10 +117,10 @@ function collectForm() {
     cookie: els.cookieInput.value.trim(),
     authorization: els.authorizationInput.value.trim(),
     lib_id: Number(els.libIdInput.value || 0),
-    slow_interval: Math.max(0.25, Number(els.slowIntervalInput.value || 0.5)),
-    concurrency: clamp(Number(els.concurrencyInput.value || 2), 1, 4),
-    candidate_limit: clamp(Number(els.candidateLimitInput.value || 6), 1, 20),
-    cooldown: clamp(Number(els.cooldownInput.value || 1.2), 0.3, 5),
+    slow_interval: Math.max(1, Number(els.slowIntervalInput.value || 2.5)),
+    concurrency: 1,
+    candidate_limit: clamp(Number(els.candidateLimitInput.value || 1), 1, 3),
+    cooldown: clamp(Number(els.cooldownInput.value || 8), 3, 30),
     preferred_seats: els.preferredSeatsInput.value.trim(),
     ntfy_topic: els.ntfyInput.value.trim(),
     captcha: els.captchaInput.value.trim(),
@@ -124,7 +136,7 @@ function updateSummary() {
   const room = getSelectedRoom();
   els.summaryLib.textContent = room ? room.name : state.config.lib_id ? String(state.config.lib_id) : '未配置';
   els.summaryCookie.textContent = state.config.cookie ? '已配置' : '未配置';
-  els.summaryOpenTime.textContent = `${state.config.slow_interval || 0.5} 秒`;
+  els.summaryOpenTime.textContent = `${state.config.slow_interval || 2.5} 秒`;
   els.summaryRounds.textContent = String(state.rounds);
 }
 
@@ -274,15 +286,38 @@ async function graphql(payload) {
     throw new Error(`接口返回非 JSON：${text.slice(0, 120)}`);
   }
   if (!response.ok) {
-    throw new Error(data.message || data.error || `HTTP ${response.status}`);
+    throwGuardedError(data.message || data.error || `HTTP ${response.status}`);
   }
   if (data.errors?.length) {
     const message = data.errors.map(formatGraphqlError).filter(Boolean).join('；');
     const error = new Error(message || 'GraphQL 返回空错误');
     error.graphqlErrors = data.errors;
+    error.isGuardRisk = isRiskMessage(error.message);
     throw error;
   }
   return data;
+}
+
+function throwGuardedError(message) {
+  const error = new Error(message || '请求失败');
+  error.isGuardRisk = isRiskMessage(error.message);
+  throw error;
+}
+
+function isRiskMessage(message) {
+  return /频繁|过快|封|禁|限制|风控|验证码|captcha|access denied|denied|登录|过期|失效|非法|异常|黑名单/i.test(
+    String(message || ''),
+  );
+}
+
+function handleRiskStop(message) {
+  if (state.guardStopped) return;
+  state.guardStopped = true;
+  stopPolling(false);
+  els.countdown.textContent = 'STOP';
+  els.modeText.textContent = '已触发保护';
+  els.stateText.textContent = '疑似风控，已停止请求';
+  log(`疑似风控/账号异常，已自动停止：${message}`, 'error');
 }
 
 function formatGraphqlError(error) {
@@ -432,7 +467,7 @@ async function runOnce() {
   }
 
   log(`第 ${state.rounds} 轮：发现 ${freeSeats.length} 个候选空位`, 'success');
-  const batches = chunk(freeSeats, state.config.concurrency || 2);
+  const batches = chunk(freeSeats, state.config.concurrency || 1);
   for (const batch of batches) {
     const result = await raceReserveBatch(batch);
     if (result) return true;
@@ -459,7 +494,7 @@ function pickCandidates(seats) {
     }))
     .sort((a, b) => b.score - a.score || String(a.seat.name || '').localeCompare(String(b.seat.name || ''), 'zh-CN', { numeric: true }));
 
-  const limit = state.config.candidate_limit || 6;
+  const limit = state.config.candidate_limit || 1;
   return scored.slice(0, limit).map((item) => item.seat);
 }
 
@@ -475,9 +510,7 @@ function scoreSeat(seat, preferred) {
   const preferredIndex = preferred.findIndex((item) => item === name || item === String(seat.key));
   if (preferredIndex >= 0) return 10000 - preferredIndex;
 
-  // 没有偏好时，把座位号靠前的排前面，同时保留少量随机性，避免每轮死磕同一个失败位。
-  const number = Number(name.match(/\d+/)?.[0] || 9999);
-  return 5000 - number + Math.random() * 12;
+  return Math.random() * 100;
 }
 
 function chunk(items, size) {
@@ -511,6 +544,10 @@ async function tryReserveSeat(seat) {
 
     log(`座位 ${seatName} 未成功：${getReserveMessage(result)}；${formatSeatDebug(seat)}`, 'warn');
   } catch (error) {
+    if (error.isGuardRisk || isRiskMessage(error.message)) {
+      handleRiskStop(error.message);
+      return false;
+    }
     log(`座位 ${seatName} 失败：${error.message || '接口返回空错误'}；${formatSeatDebug(seat)}`, 'error');
   }
 
@@ -585,7 +622,7 @@ async function sendNtfy(message) {
 }
 
 function nextDelay(mode) {
-  const base = (state.config.slow_interval || 0.5) * 1000;
+  const base = (state.config.slow_interval || 2.5) * 1000;
   const jitter = Math.floor(Math.random() * Math.min(80, base * 0.15));
   return Math.max(250, base + jitter + state.backoffMs);
 }
@@ -607,7 +644,11 @@ async function handlePollTick() {
     const success = await runOnce();
     state.backoffMs = success ? 0 : Math.max(0, state.backoffMs - 120);
   } catch (error) {
-    state.backoffMs = Math.min(5000, state.backoffMs ? state.backoffMs * 1.5 : 700);
+    if (error.isGuardRisk || isRiskMessage(error.message)) {
+      handleRiskStop(error.message);
+      return;
+    }
+    state.backoffMs = Math.min(12000, state.backoffMs ? state.backoffMs * 1.6 : 1500);
     log(`轮询失败：${error.message}，退避 ${Math.round(state.backoffMs / 1000)} 秒`, 'error');
   } finally {
     scheduleNextPoll('leak');
@@ -637,6 +678,7 @@ async function startPolling() {
   try {
     validateConfig();
     state.success = false;
+    state.guardStopped = false;
     state.seatCooldown = {};
     ensureWorkerTimer();
     state.running = true;
