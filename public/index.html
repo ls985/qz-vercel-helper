@@ -4,15 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0b0f14" />
-    <title>捡漏助手</title>
+    <title>gotolibray</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
     <main class="app-shell">
       <header class="topbar app-topbar">
-        <a class="brand" href="/" aria-label="捡漏助手首页">
-          <span class="brand-mark" aria-hidden="true">QZ</span>
-          <span><small>我去图书馆</small><strong>捡漏助手</strong></span>
+        <a class="brand" href="/" aria-label="gotolibray 首页">
+          <span class="brand-mark" aria-hidden="true">GO</span>
+          <span><small>我去图书馆</small><strong>gotolibray</strong></span>
         </a>
         <div class="top-actions">
           <span class="status-pill" id="healthStatus"><i></i>检测中</span>
@@ -71,8 +71,7 @@
         <form class="form settings-panel" id="configForm">
           <section class="login-panel">
             <div><span class="label-title">登录获取 Cookie</span><small>完成微信授权后，将跳转链接粘贴到下方解析。</small></div>
-            <div class="actions compact">
-              <button class="primary" id="openWechatLoginBtn" type="button">打开微信登录</button>
+            <div class="actions compact single-action">
               <button id="copyLoginLinkBtn" type="button">复制登录链接</button>
             </div>
           </section>

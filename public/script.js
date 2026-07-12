@@ -71,7 +71,6 @@ const els = {
   preferredSeatsInput: $('preferredSeatsInput'),
   ntfyInput: $('ntfyInput'),
   authUrlInput: $('authUrlInput'),
-  openWechatLoginBtn: $('openWechatLoginBtn'),
   copyLoginLinkBtn: $('copyLoginLinkBtn'),
   refreshRoomsBtn: $('refreshRoomsBtn'),
   clearCookieBtn: $('clearCookieBtn'),
@@ -695,7 +694,7 @@ async function handleSuccess(seat) {
   } catch (error) {
     log(`头发扣除失败：${error.message}`, 'error');
   }
-  document.title = '[已抢到] 抢座助手';
+  document.title = '[已抢到] gotolibray';
   els.stateText.textContent = `已抢到：${seatName}`;
   els.modeText.textContent = '抢座成功';
   els.monitorPanel.classList.remove('is-running');
@@ -802,7 +801,7 @@ async function startPolling() {
     state.running = true;
     state.mode = 'leak';
     state.backoffMs = 0;
-    document.title = '[捡漏中] 捡漏助手';
+    document.title = '[捡漏中] gotolibray';
     els.countdown.textContent = 'RUN';
     els.modeText.textContent = '高速捡漏';
     els.stateText.textContent = '监控中，请保持页面前台更稳';
@@ -823,7 +822,7 @@ function stopPolling(writeLog = true) {
   state.running = false;
   state.mode = 'idle';
   state.backoffMs = 0;
-  document.title = '捡漏助手';
+  document.title = 'gotolibray';
   els.countdown.textContent = 'READY';
   els.modeText.textContent = '已停止';
   els.stateText.textContent = '轮询未运行';
@@ -931,11 +930,6 @@ function bindEvents() {
     state.config = { ...state.config, ...collectForm() };
     saveConfig();
     refreshRooms();
-  });
-  els.openWechatLoginBtn.addEventListener('click', () => {
-    const loginUrl = buildWechatLoginUrl();
-    window.open(loginUrl, '_blank', 'noopener,noreferrer');
-    log('已打开微信登录链接；授权后复制回调链接粘贴回来', 'info');
   });
   els.copyLoginLinkBtn.addEventListener('click', async () => {
     try {

@@ -114,6 +114,7 @@ label span, .label-title { display: block; margin-bottom: 7px; color: var(--soft
 .login-panel { display: grid; gap: 13px; border: 1px solid rgba(138, 164, 255, 0.18); border-radius: var(--radius); padding: 14px; background: rgba(138, 164, 255, 0.045); }
 .actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
 .actions.compact { grid-template-columns: 1fr 1fr; }
+.actions.single-action { grid-template-columns: 1fr; }
 .form-actions { border-top: 1px solid var(--line-soft); padding-top: 16px; }
 .advanced-field { opacity: 0.78; }
 .log-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
