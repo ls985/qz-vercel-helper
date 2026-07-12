@@ -7,7 +7,7 @@ const defaultConfig = {
   cookie: '',
   authorization: '',
   lib_id: '',
-  slow_interval: 2.5,
+  slow_interval: 1.5,
   concurrency: 1,
   candidate_limit: 1,
   cooldown: 8,
@@ -31,12 +31,23 @@ const state = {
   lastNoSeatLogAt: 0,
   reserveFieldName: '',
   guardStopped: false,
+  currentUser: null,
 };
 
 const $ = (id) => document.getElementById(id);
 
 const els = {
   healthStatus: $('healthStatus'),
+  userStatus: $('userStatus'),
+  userAvatar: $('userAvatar'),
+  adminLink: $('adminLink'),
+  logoutBtn: $('logoutBtn'),
+  hairBalance: $('hairBalance'),
+  checkinState: $('checkinState'),
+  checkinBtn: $('checkinBtn'),
+  monitorPanel: $('monitorPanel'),
+  noticePanel: $('noticePanel'),
+  noticeList: $('noticeList'),
   countdown: $('countdown'),
   modeText: $('modeText'),
   stateText: $('stateText'),
@@ -74,6 +85,103 @@ const els = {
   closeSuccessBtn: $('closeSuccessBtn'),
 };
 
+async function loadCurrentUser() {
+  try {
+    const response = await fetch('/api/auth/me');
+    const data = await response.json();
+    if (!data.user) {
+      window.location.href = '/login.html';
+      return;
+    }
+    state.currentUser = data.user;
+    els.userStatus.textContent = data.user.username;
+    els.userAvatar.textContent = data.user.username.slice(0, 1);
+    updateAdminVisibility();
+    updateUserPanel();
+  } catch {
+    window.location.href = '/login.html';
+  }
+}
+
+function updateAdminVisibility() {
+  const isAdmin = state.currentUser?.role === 'admin';
+  document.querySelectorAll('.admin-only').forEach((element) => {
+    element.hidden = !isAdmin;
+  });
+}
+
+function updateUserPanel() {
+  els.hairBalance.textContent = formatHair(state.currentUser?.hair || 0);
+  els.hairBalance.classList.remove('value-pop');
+  requestAnimationFrame(() => els.hairBalance.classList.add('value-pop'));
+  const checkedIn = state.currentUser?.lastCheckinDate === todayKey();
+  els.checkinState.textContent = checkedIn ? '今日已签到' : '今日可签到';
+  els.checkinState.classList.toggle('done', checkedIn);
+  els.checkinBtn.textContent = checkedIn ? '今日已签到' : '签到领头发';
+  els.checkinBtn.disabled = checkedIn;
+}
+
+function todayKey() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
+function formatHair(value) {
+  return Number(value || 0).toFixed(2).replace(/\.?0+$/, '');
+}
+
+async function loadAnnouncements() {
+  try {
+    const response = await fetch('/api/announcements');
+    const data = await response.json();
+    const announcements = data.announcements || [];
+    els.noticePanel.hidden = !announcements.length;
+    els.noticeList.innerHTML = announcements
+      .map(
+        (item) => `
+          <li>
+            <strong>${escapeHtml(item.title)}</strong>
+            <span>${escapeHtml(item.content)}</span>
+          </li>
+        `,
+      )
+      .join('');
+  } catch {
+    els.noticePanel.hidden = true;
+  }
+}
+
+async function checkin() {
+  els.checkinBtn.disabled = true;
+  try {
+    const response = await fetch('/api/auth/checkin', { method: 'POST' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || data.error || `HTTP ${response.status}`);
+    state.currentUser = data.user;
+    updateUserPanel();
+    els.checkinBtn.classList.remove('rewarded');
+    requestAnimationFrame(() => els.checkinBtn.classList.add('rewarded'));
+    log(`签到成功，获得 ${formatHair(data.amount)} 根头发`, 'success');
+  } catch (error) {
+    log(error.message || '签到失败', 'warn');
+  } finally {
+    els.checkinBtn.disabled = state.currentUser?.lastCheckinDate === todayKey();
+  }
+}
+
+async function consumeHairForSuccess() {
+  const response = await fetch('/api/auth/consume', { method: 'POST' });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.message || data.error || `HTTP ${response.status}`);
+  state.currentUser = data.user;
+  updateUserPanel();
+  log('抢座成功，已消耗 1 根头发', 'success');
+}
+
 function loadConfig() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
@@ -103,7 +211,7 @@ function fillForm() {
   els.authorizationInput.value = state.config.authorization || '';
   els.libIdInput.value = state.config.lib_id || '';
   els.captchaInput.value = state.config.captcha || '';
-  els.slowIntervalInput.value = state.config.slow_interval || 2.5;
+  els.slowIntervalInput.value = state.config.slow_interval || defaultConfig.slow_interval;
   els.concurrencyInput.value = state.config.concurrency || 1;
   els.candidateLimitInput.value = state.config.candidate_limit || 1;
   els.cooldownInput.value = state.config.cooldown || 8;
@@ -117,7 +225,7 @@ function collectForm() {
     cookie: els.cookieInput.value.trim(),
     authorization: els.authorizationInput.value.trim(),
     lib_id: Number(els.libIdInput.value || 0),
-    slow_interval: Math.max(1, Number(els.slowIntervalInput.value || 2.5)),
+    slow_interval: Math.max(1, Number(els.slowIntervalInput.value || defaultConfig.slow_interval)),
     concurrency: 1,
     candidate_limit: clamp(Number(els.candidateLimitInput.value || 1), 1, 3),
     cooldown: clamp(Number(els.cooldownInput.value || 8), 3, 30),
@@ -136,7 +244,7 @@ function updateSummary() {
   const room = getSelectedRoom();
   els.summaryLib.textContent = room ? room.name : state.config.lib_id ? String(state.config.lib_id) : '未配置';
   els.summaryCookie.textContent = state.config.cookie ? '已配置' : '未配置';
-  els.summaryOpenTime.textContent = `${state.config.slow_interval || 2.5} 秒`;
+  els.summaryOpenTime.textContent = `${state.config.slow_interval || defaultConfig.slow_interval} 秒`;
   els.summaryRounds.textContent = String(state.rounds);
 }
 
@@ -208,6 +316,7 @@ function escapeHtml(value) {
 function validateConfig() {
   if (!state.config.cookie) throw new Error('请先填写 Cookie');
   if (!Number(state.config.lib_id)) throw new Error('请先填写阅览室 ID');
+  if (Number(state.currentUser?.hair || 0) < 1) throw new Error('头发不足，成功抢座需要 1 根头发');
 }
 
 async function requestWakeLock() {
@@ -317,6 +426,7 @@ function handleRiskStop(message) {
   els.countdown.textContent = 'STOP';
   els.modeText.textContent = '已触发保护';
   els.stateText.textContent = '疑似风控，已停止请求';
+  els.monitorPanel.classList.remove('is-running');
   log(`疑似风控/账号异常，已自动停止：${message}`, 'error');
 }
 
@@ -580,9 +690,16 @@ async function handleSuccess(seat) {
   state.success = true;
   stopPolling(false);
   const seatName = seat.name || seat.key;
+  try {
+    await consumeHairForSuccess();
+  } catch (error) {
+    log(`头发扣除失败：${error.message}`, 'error');
+  }
   document.title = '[已抢到] 抢座助手';
   els.stateText.textContent = `已抢到：${seatName}`;
   els.modeText.textContent = '抢座成功';
+  els.monitorPanel.classList.remove('is-running');
+  els.monitorPanel.classList.add('is-success');
   els.successText.textContent = `座位：${seatName}`;
   log(`抢座成功：${seatName}`, 'success');
   playBeep();
@@ -622,7 +739,7 @@ async function sendNtfy(message) {
 }
 
 function nextDelay(mode) {
-  const base = (state.config.slow_interval || 2.5) * 1000;
+  const base = (state.config.slow_interval || defaultConfig.slow_interval) * 1000;
   const jitter = Math.floor(Math.random() * Math.min(80, base * 0.15));
   return Math.max(250, base + jitter + state.backoffMs);
 }
@@ -675,6 +792,7 @@ function ensureWorkerTimer() {
 }
 
 async function startPolling() {
+  if (state.running) return;
   try {
     validateConfig();
     state.success = false;
@@ -688,12 +806,14 @@ async function startPolling() {
     els.countdown.textContent = 'RUN';
     els.modeText.textContent = '高速捡漏';
     els.stateText.textContent = '监控中，请保持页面前台更稳';
+    els.monitorPanel.classList.remove('is-success');
+    els.monitorPanel.classList.add('is-running');
     await requestWakeLock();
     log('开始高速捡漏监控', 'success');
     scheduleNextPoll('leak');
   } catch (error) {
     log(error.message, 'error');
-    switchTab('config');
+    if (/Cookie|阅览室/.test(error.message)) switchTab('config');
   }
 }
 
@@ -707,6 +827,7 @@ function stopPolling(writeLog = true) {
   els.countdown.textContent = 'READY';
   els.modeText.textContent = '已停止';
   els.stateText.textContent = '轮询未运行';
+  els.monitorPanel.classList.remove('is-running');
   releaseWakeLock();
   if (writeLog) log('已停止轮询', 'warn');
 }
@@ -793,12 +914,18 @@ function bindEvents() {
   });
 
   els.leakBtn.addEventListener('click', () => startPolling());
+  els.checkinBtn.addEventListener('click', checkin);
   els.stopBtn.addEventListener('click', () => stopPolling());
   els.clearLogsBtn.addEventListener('click', () => {
     localStorage.removeItem(LOG_KEY);
     renderLogs();
   });
   els.testConfigBtn.addEventListener('click', testHealth);
+  els.logoutBtn.addEventListener('click', async () => {
+    stopPolling(false);
+    await fetch('/api/auth/logout', { method: 'POST' });
+    window.location.href = '/login.html';
+  });
   els.exchangeCookieBtn.addEventListener('click', exchangeCookie);
   els.refreshRoomsBtn.addEventListener('click', () => {
     state.config = { ...state.config, ...collectForm() };
@@ -835,6 +962,8 @@ function bindEvents() {
 }
 
 function init() {
+  loadCurrentUser();
+  loadAnnouncements();
   loadConfig();
   fillForm();
   renderRooms();

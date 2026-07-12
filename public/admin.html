@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0f14" />
+    <title>管理后台 - 捡漏助手</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="admin-shell">
+      <header class="admin-topbar">
+        <a class="brand" href="/">
+          <span class="brand-mark">QZ</span>
+          <span><small>CONTROL CENTER</small><strong>管理后台</strong></span>
+        </a>
+        <div class="top-actions">
+          <a class="icon-link" href="/">返回前台</a>
+          <button class="quiet-button" id="logoutBtn" type="button">退出</button>
+        </div>
+      </header>
+
+      <section class="admin-content">
+        <header class="page-heading reveal-item">
+          <div><p class="eyebrow">OVERVIEW</p><h1>用户与活动</h1><p>管理账户、头发余额与站内公告。</p></div>
+          <p class="auth-message" id="adminMessage" aria-live="polite"></p>
+        </header>
+
+        <section class="stat-grid reveal-item" aria-label="站点统计">
+          <article><span>总用户</span><strong id="statUsers">0</strong><small>全部注册账户</small></article>
+          <article><span>启用账户</span><strong id="statActive">0</strong><small>当前可登录</small></article>
+          <article><span>头发总量</span><strong id="statHair">0</strong><small>所有账户余额</small></article>
+          <article><span>今日活动</span><strong id="statToday">0</strong><small>签到与消耗</small></article>
+        </section>
+
+        <section class="admin-layout reveal-item">
+          <aside class="admin-sidebar">
+            <form class="form admin-panel" id="createUserForm">
+              <div class="panel-heading"><div><p class="eyebrow">ACCOUNT</p><h2>创建用户</h2></div></div>
+              <label><span>用户名</span><input id="newUsernameInput" required minlength="3" autocomplete="off" placeholder="至少 3 个字符" /></label>
+              <label><span>初始密码</span><input id="newPasswordInput" type="password" required minlength="8" autocomplete="new-password" placeholder="至少 8 个字符" /></label>
+              <label><span>角色</span><select id="newRoleInput"><option value="user">普通用户</option><option value="admin">管理员</option></select></label>
+              <button class="primary" type="submit">创建用户</button>
+            </form>
+
+            <form class="form admin-panel" id="announcementForm">
+              <div class="panel-heading"><div><p class="eyebrow">NOTICE</p><h2>发布公告</h2></div></div>
+              <label><span>标题</span><input id="announcementTitleInput" required maxlength="80" placeholder="公告标题" /></label>
+              <label><span>内容</span><textarea id="announcementContentInput" rows="4" required maxlength="500" placeholder="公告正文"></textarea></label>
+              <button class="primary" type="submit">发布公告</button>
+            </form>
+          </aside>
+
+          <div class="admin-main">
+            <section class="admin-panel table-panel">
+              <header class="panel-heading">
+                <div><p class="eyebrow">MEMBERS</p><h2>用户列表</h2></div>
+                <button class="refresh-button" id="refreshUsersBtn" type="button">刷新</button>
+              </header>
+              <div class="table-wrap">
+                <table class="admin-table">
+                  <thead><tr><th>用户</th><th>头发</th><th>角色</th><th>状态</th><th>最近登录</th><th>操作</th></tr></thead>
+                  <tbody id="usersBody"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="admin-panel activity-panel">
+              <header class="panel-heading">
+                <div><p class="eyebrow">RECENT</p><h2>活动日志</h2></div>
+                <button class="refresh-button" id="refreshActivityBtn" type="button">刷新</button>
+              </header>
+              <ol class="activity-list" id="activityList"></ol>
+            </section>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <dialog class="action-dialog" id="actionDialog">
+      <form method="dialog" id="actionForm">
+        <div class="dialog-head"><div><p class="eyebrow" id="actionEyebrow">USER</p><h2 id="actionTitle">账户操作</h2></div><button class="dialog-close" value="cancel" type="submit" aria-label="关闭">×</button></div>
+        <p id="actionDescription"></p>
+        <label><span id="actionInputLabel">数值</span><input id="actionInput" required /></label>
+        <div class="dialog-actions"><button value="cancel" type="submit">取消</button><button class="primary" id="actionSubmit" value="default" type="button">确认</button></div>
+      </form>
+    </dialog>
+    <script src="./admin.js"></script>
+  </body>
+</html>

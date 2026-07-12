@@ -4,7 +4,8 @@
   "private": true,
   "description": "Browser-polling seat helper with Vercel API proxy.",
   "scripts": {
-    "check": "node --check api/proxy.js && node --check api/session.js && node --check public/script.js"
+    "start": "node server.js",
+    "check": "node --check server.js && node --check lib/auth-store.js && node --check api/proxy.js && node --check api/session.js && node --check public/script.js && node --check public/auth.js && node --check public/register.js && node --check public/admin.js"
   },
   "engines": {
     "node": ">=18"

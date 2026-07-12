@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0f14" />
+    <title>注册 - 捡漏助手</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body class="auth-page">
+    <main class="auth-shell">
+      <section class="auth-brand reveal-item">
+        <span class="brand-mark large">QZ</span>
+        <p class="eyebrow">我去图书馆</p>
+        <h1>创建账号</h1>
+        <p>注册成功后即可直接使用。</p>
+        <div class="auth-status"><i></i>无需等待审核</div>
+      </section>
+      <section class="auth-panel reveal-item">
+        <header><p class="eyebrow">GET STARTED</p><h2>注册账号</h2><p>设置你的登录信息。</p></header>
+        <form class="form" id="registerForm">
+          <label><span>用户名</span><input id="usernameInput" autocomplete="username" minlength="3" required autofocus placeholder="至少 3 个字符" /></label>
+          <label><span>密码</span><input id="passwordInput" type="password" autocomplete="new-password" minlength="8" required placeholder="至少 8 个字符" /></label>
+          <label><span>确认密码</span><input id="confirmInput" type="password" autocomplete="new-password" minlength="8" required placeholder="再次输入密码" /></label>
+          <button class="primary" id="registerBtn" type="submit">注册并登录</button>
+        </form>
+        <p class="auth-message" id="messageBox" aria-live="polite"></p>
+        <p class="auth-switch">已有账号？<a href="/login.html">返回登录</a></p>
+      </section>
+    </main>
+    <script src="./register.js"></script>
+  </body>
+</html>
