@@ -141,12 +141,18 @@ async function loadAnnouncements() {
     els.noticePanel.hidden = !announcements.length;
     els.noticeList.innerHTML = announcements
       .map(
-        (item) => `
-          <li>
-            <strong>${escapeHtml(item.title)}</strong>
-            <span>${escapeHtml(item.content)}</span>
+        (item) => {
+          const copyValue = [item.title, item.content].filter(Boolean).join('\n');
+          return `
+          <li class="notice-item">
+            <div class="notice-item-head">
+              <strong>${escapeHtml(item.title)}</strong>
+              <button class="notice-copy-button" type="button" data-copy="${escapeHtml(copyValue)}">复制</button>
+            </div>
+            <span class="notice-content">${escapeHtml(item.content)}</span>
           </li>
-        `,
+        `;
+        },
       )
       .join('');
   } catch {
@@ -920,6 +926,19 @@ function bindEvents() {
     renderLogs();
   });
   els.testConfigBtn.addEventListener('click', testHealth);
+  els.noticeList.addEventListener('click', async (event) => {
+    const button = event.target.closest('.notice-copy-button');
+    if (!button) return;
+    try {
+      await copyText(button.dataset.copy || '');
+      button.textContent = '已复制';
+      setTimeout(() => {
+        button.textContent = '复制';
+      }, 1200);
+    } catch (error) {
+      log(`公告复制失败：${error.message}`, 'error');
+    }
+  });
   els.logoutBtn.addEventListener('click', async () => {
     stopPolling(false);
     await fetch('/api/auth/logout', { method: 'POST' });

@@ -97,11 +97,14 @@ small { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; l
 .panel-title h2 { font-size: 15px; }
 .notice-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 5px rgba(138, 164, 255, 0.12); }
 .notice-badge { margin-left: auto; border: 1px solid rgba(138, 164, 255, 0.25); border-radius: 999px; padding: 3px 7px; color: var(--blue); background: rgba(138, 164, 255, 0.08); font-size: 10px; font-weight: 800; }
-.notice-panel ol { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
-.notice-panel li { display: grid; gap: 3px; }
-.notice-panel li + li { border-top: 1px solid rgba(138, 164, 255, 0.12); padding-top: 9px; }
-.notice-panel strong { font-size: 13px; }
-.notice-panel span { color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.notice-panel ol { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.notice-item { display: grid; gap: 7px; user-select: text; -webkit-user-select: text; }
+.notice-item + .notice-item { border-top: 1px solid rgba(138, 164, 255, 0.12); padding-top: 11px; }
+.notice-item-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.notice-panel strong { color: var(--text); font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
+.notice-content { color: var(--soft); font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; white-space: pre-wrap; }
+.notice-copy-button { min-height: 30px; flex: 0 0 auto; border-color: rgba(138, 164, 255, 0.24); border-radius: 999px; padding: 4px 10px; background: rgba(138, 164, 255, 0.07); color: var(--blue); font-size: 12px; font-weight: 700; }
+.notice-copy-button:hover { border-color: rgba(138, 164, 255, 0.42); background: rgba(138, 164, 255, 0.12); color: #a8bbff; }
 .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-top: 12px; }
 .summary-item { min-height: 72px; border: 1px solid var(--line-soft); border-radius: var(--radius); padding: 12px 13px; background: rgba(255, 255, 255, 0.018); }
 .summary-item span { display: block; color: var(--muted); font-size: 11px; }
