@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0f14" />
+    <title>使用教程 - gotolibray</title>
+    <link rel="stylesheet" href="./style.css" />
+    <style>
+      body { background: #090d12; }
+      .guide-shell { width: min(100%, 980px); margin: 0 auto; padding: 26px 18px 44px; }
+      .guide-topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 24px; }
+      .guide-hero { display: grid; gap: 14px; border: 1px solid var(--line-soft); border-radius: var(--radius); padding: 22px; background: var(--surface); }
+      .guide-hero h1 { margin: 0; font-size: clamp(28px, 6vw, 48px); line-height: 1.12; }
+      .guide-hero p { max-width: 660px; margin: 0; color: var(--muted); line-height: 1.7; }
+      .guide-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+      .guide-actions a { display: inline-flex; min-height: 42px; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: var(--radius); padding: 0 14px; color: var(--soft); text-decoration: none; background: var(--surface-2); }
+      .guide-actions a.primary-link { border-color: transparent; background: var(--mint); color: #07120e; font-weight: 750; }
+      .guide-section { margin-top: 22px; }
+      .guide-section h2 { margin: 0 0 12px; font-size: 22px; }
+      .step-list { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
+      .step-card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 360px); gap: 18px; align-items: start; border: 1px solid var(--line-soft); border-radius: var(--radius); padding: 16px; background: rgba(255, 255, 255, 0.018); }
+      .step-copy { display: grid; gap: 8px; }
+      .step-num { display: inline-flex; width: 34px; height: 34px; align-items: center; justify-content: center; border: 1px solid rgba(110, 231, 183, 0.3); border-radius: 8px; color: var(--mint); font-weight: 850; background: rgba(110, 231, 183, 0.08); }
+      .step-card h3 { margin: 0; font-size: 18px; }
+      .step-card p { margin: 0; color: var(--muted); line-height: 1.7; }
+      .step-card img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); background: #05070a; }
+      .tips { display: grid; gap: 10px; border: 1px solid rgba(246, 200, 95, 0.24); border-radius: var(--radius); padding: 16px; color: var(--soft); background: rgba(246, 200, 95, 0.06); }
+      .tips p { margin: 0; color: var(--muted); line-height: 1.7; }
+      @media (max-width: 760px) {
+        .guide-shell { padding: 18px 12px 34px; }
+        .guide-topbar { align-items: flex-start; }
+        .guide-topbar .brand small, .guide-topbar .brand strong { display: none; }
+        .guide-hero { padding: 18px; }
+        .step-card { grid-template-columns: 1fr; padding: 14px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="guide-shell">
+      <header class="guide-topbar">
+        <a class="brand" href="/" aria-label="gotolibray 首页">
+          <span class="brand-mark" aria-hidden="true">GO</span>
+          <span><small>我去图书馆</small><strong>gotolibray</strong></span>
+        </a>
+        <a class="icon-link" href="/login.html">登录</a>
+      </header>
+
+      <section class="guide-hero">
+        <p class="eyebrow">GET STARTED</p>
+        <h1>gotolibray 使用教程</h1>
+        <p>按照下面步骤获取微信登录 Cookie。整体流程是：在配置页复制登录链接，发送到微信并打开，复制微信回调链接，再回到配置页换取 Cookie。</p>
+        <div class="guide-actions">
+          <a class="primary-link" href="/login.html">开始使用</a>
+          <a href="/">返回首页</a>
+        </div>
+      </section>
+
+      <section class="guide-section">
+        <h2>操作步骤</h2>
+        <ol class="step-list">
+          <li class="step-card">
+            <div class="step-copy">
+              <span class="step-num">1</span>
+              <h3>进入配置页并复制登录链接</h3>
+              <p>登录网站后，点击底部“配置”。在“登录获取 Cookie”区域点击“复制登录链接”。</p>
+            </div>
+            <img src="./tutorial-assets/step-1-config-copy-link.jpeg" alt="配置页复制登录链接" loading="lazy" />
+          </li>
+          <li class="step-card">
+            <div class="step-copy">
+              <span class="step-num">2</span>
+              <h3>把链接发送到微信并打开</h3>
+              <p>将刚才复制的链接发送到微信聊天窗口，例如发给文件传输助手，然后在微信里点击这条链接打开。</p>
+            </div>
+            <img src="./tutorial-assets/step-2-open-in-wechat.jpeg" alt="在微信中打开登录链接" loading="lazy" />
+          </li>
+          <li class="step-card">
+            <div class="step-copy">
+              <span class="step-num">3</span>
+              <h3>打开右上角菜单</h3>
+              <p>微信页面跳转后，右上角会有“...”菜单。页面中出现报错文字也没关系，只需要继续复制当前页面链接。</p>
+            </div>
+            <img src="./tutorial-assets/step-3-wechat-menu.jpeg" alt="点击微信页面右上角菜单" loading="lazy" />
+          </li>
+          <li class="step-card">
+            <div class="step-copy">
+              <span class="step-num">4</span>
+              <h3>复制微信回调链接</h3>
+              <p>在弹出的分享面板里，点击“复制链接”。这个链接里通常会带有 code 参数。</p>
+            </div>
+            <img src="./tutorial-assets/step-4-copy-callback.jpeg" alt="复制微信回调链接" loading="lazy" />
+          </li>
+          <li class="step-card">
+            <div class="step-copy">
+              <span class="step-num">5</span>
+              <h3>粘贴回调链接并获取 Cookie</h3>
+              <p>回到 gotolibray 配置页，将复制到的链接粘贴到“微信回调链接”输入框，然后点击“解析登录并获取阅览室”。成功后 Cookie 会自动填入下方。</p>
+            </div>
+            <img src="./tutorial-assets/step-5-paste-get-cookie.jpeg" alt="粘贴回调链接并换取 Cookie" loading="lazy" />
+          </li>
+        </ol>
+      </section>
+
+      <section class="guide-section tips">
+        <strong>注意事项</strong>
+        <p>Cookie 只保存在当前浏览器中。不要把 Cookie、Authorization 或带 code 的回调链接发给别人。</p>
+        <p>如果提示登录失效，重新按教程复制登录链接并换取 Cookie 即可。</p>
+      </section>
+    </main>
+  </body>
+</html>

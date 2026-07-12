@@ -287,8 +287,8 @@ function handleApi(req, res, url) {
 }
 
 function handleStatic(req, res, url) {
-  const publicFiles = new Set(['/login.html', '/register.html', '/auth.js', '/register.js', '/style.css']);
-  if (publicFiles.has(url.pathname)) {
+  const publicFiles = new Set(['/login.html', '/register.html', '/tutorial.html', '/auth.js', '/register.js', '/style.css']);
+  if (publicFiles.has(url.pathname) || url.pathname.startsWith('/tutorial-assets/')) {
     serveFile(res, publicPathFromUrl(url.pathname));
     return;
   }
