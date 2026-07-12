@@ -9,6 +9,7 @@ const auth = require('./lib/auth-store');
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const COOKIE_NAME = 'qz_session';
+const SESSION_DAYS = Math.max(1, Number(process.env.AUTH_SESSION_DAYS || 3650));
 const ALLOWED_ORIGINS = new Set(
   (process.env.ALLOWED_ORIGINS || 'https://igotolib.duckdns.org,http://igotolib.duckdns.org')
     .split(',')
@@ -153,7 +154,9 @@ async function handleAuth(req, res, url) {
   try {
     if (req.method === 'GET' && url.pathname === '/api/auth/me') {
       const user = getUser(req);
-      sendJson(res, 200, { user: auth.publicUser(user) });
+      const token = parseCookies(req)[COOKIE_NAME];
+      const headers = user && token ? { 'Set-Cookie': sessionCookie(token, req, SESSION_DAYS * 24 * 60 * 60) } : {};
+      sendJson(res, 200, { user: auth.publicUser(user) }, headers);
       return true;
     }
 
@@ -165,7 +168,7 @@ async function handleAuth(req, res, url) {
         return true;
       }
 
-      const maxAge = Math.max(1, Number(process.env.AUTH_SESSION_DAYS || 7)) * 24 * 60 * 60;
+      const maxAge = SESSION_DAYS * 24 * 60 * 60;
       sendJson(res, 200, { user: result.user }, { 'Set-Cookie': sessionCookie(result.session.token, req, maxAge) });
       return true;
     }

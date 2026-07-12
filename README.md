@@ -32,7 +32,7 @@
 - `ADMIN_USERNAME` / `ADMIN_PASSWORD`：首次启动时自动创建管理员账号。`ADMIN_PASSWORD` 至少 8 位。
 - `AUTH_SECRET`：认证加盐密钥，生产环境务必设置为足够长的随机字符串。
 - `AUTH_DATA_DIR`：用户、会话和活动日志保存目录，默认 `.data`。
-- `AUTH_SESSION_DAYS`：登录有效天数，默认 7。
+- `AUTH_SESSION_DAYS`：登录有效天数，默认 3650。
 
 ## 登录和用户管理
 
