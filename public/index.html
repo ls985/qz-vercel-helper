@@ -41,8 +41,11 @@
             <div class="signal-badge"><i></i><span>服务在线</span></div>
           </div>
           <div class="primary-action">
-            <button class="primary" id="leakBtn" type="button">开始捡漏</button>
-            <small>成功抢座后消耗 1 根头发</small>
+            <div class="booking-actions">
+              <button class="primary" id="leakBtn" type="button">开始捡漏</button>
+              <button class="tomorrow-button" id="tomorrowBtn" type="button">明日预约</button>
+            </div>
+            <small>预约成功后消耗 1 根头发</small>
           </div>
           <div class="quick-actions">
             <button class="checkin-button" id="checkinBtn" type="button">签到领头发</button>
@@ -58,6 +61,7 @@
         <section class="summary-grid reveal-item">
           <div class="summary-item"><span>阅览室</span><strong id="summaryLib">未配置</strong></div>
           <div class="summary-item"><span>Cookie</span><strong id="summaryCookie">未配置</strong></div>
+          <div class="summary-item"><span>明日预约</span><strong id="summaryTomorrow">未配置</strong></div>
           <div class="summary-item admin-only" hidden><span>轮询间隔</span><strong id="summaryOpenTime">1.5 秒</strong></div>
           <div class="summary-item admin-only" hidden><span>请求次数</span><strong id="summaryRounds">0</strong></div>
         </section>
@@ -96,6 +100,16 @@
             <label><span>偏好座位</span><input id="preferredSeatsInput" type="text" placeholder="如 101,102,103" /></label>
             <label><span>验证码</span><input id="captchaInput" type="text" placeholder="通常留空" /></label>
           </div>
+          <section class="tomorrow-settings" aria-labelledby="tomorrowSettingsTitle">
+            <header class="settings-section-head">
+              <div><span class="settings-section-icon" aria-hidden="true">次</span><strong id="tomorrowSettingsTitle">明日预约</strong></div>
+              <small>阅览室空位监控</small>
+            </header>
+            <div class="form-row">
+              <label><span>目标阅览室</span><strong class="readonly-value" id="tomorrowRoomText">请先在上方选择阅览室</strong><small>跟随上方“阅览室”选项</small></label>
+              <label><span>触发时间</span><input id="tomorrowTimeInput" type="time" step="1" value="20:00:00" /><small>默认 20:00:00</small></label>
+            </div>
+          </section>
           <label><span>ntfy.sh 频道</span><input id="ntfyInput" type="text" placeholder="可选，例如 my-seat-topic" /></label>
           <div class="actions compact form-actions">
             <button class="primary" id="saveBtn" type="submit">保存配置</button>
@@ -120,7 +134,7 @@
     </nav>
 
     <dialog class="success-dialog" id="successDialog">
-      <div class="success-mark">✓</div><h2>抢到座位了</h2><p id="successText">请尽快确认预约状态。</p>
+      <div class="success-mark">✓</div><h2 id="successTitle">抢到座位了</h2><p id="successText">请尽快确认预约状态。</p>
       <button class="primary" id="closeSuccessBtn" type="button">知道了</button>
     </dialog>
     <script src="./script.js"></script>

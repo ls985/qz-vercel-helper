@@ -12,6 +12,7 @@ const defaultConfig = {
   candidate_limit: 1,
   cooldown: 8,
   preferred_seats: '',
+  tomorrow_time: '20:00:00',
   ntfy_topic: '',
   captcha: '',
   rooms: [],
@@ -32,6 +33,11 @@ const state = {
   reserveFieldName: '',
   guardStopped: false,
   currentUser: null,
+  tomorrowSeats: [],
+  tomorrowRunAt: 0,
+  abortController: null,
+  tomorrowDetailedLayoutSupported: null,
+  tomorrowNoSeatLogAt: 0,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -53,9 +59,11 @@ const els = {
   stateText: $('stateText'),
   summaryLib: $('summaryLib'),
   summaryCookie: $('summaryCookie'),
+  summaryTomorrow: $('summaryTomorrow'),
   summaryOpenTime: $('summaryOpenTime'),
   summaryRounds: $('summaryRounds'),
   leakBtn: $('leakBtn'),
+  tomorrowBtn: $('tomorrowBtn'),
   stopBtn: $('stopBtn'),
   configForm: $('configForm'),
   cookieInput: $('cookieInput'),
@@ -69,6 +77,8 @@ const els = {
   candidateLimitInput: $('candidateLimitInput'),
   cooldownInput: $('cooldownInput'),
   preferredSeatsInput: $('preferredSeatsInput'),
+  tomorrowRoomText: $('tomorrowRoomText'),
+  tomorrowTimeInput: $('tomorrowTimeInput'),
   ntfyInput: $('ntfyInput'),
   authUrlInput: $('authUrlInput'),
   copyLoginLinkBtn: $('copyLoginLinkBtn'),
@@ -80,6 +90,7 @@ const els = {
   clearLogsBtn: $('clearLogsBtn'),
   logList: $('logList'),
   successDialog: $('successDialog'),
+  successTitle: $('successTitle'),
   successText: $('successText'),
   closeSuccessBtn: $('closeSuccessBtn'),
 };
@@ -202,12 +213,16 @@ function saveConfig() {
 }
 
 function normalizeConfig(config) {
+  const tomorrowTime = /^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(String(config.tomorrow_time || ''))
+    ? String(config.tomorrow_time).padEnd(8, ':00')
+    : defaultConfig.tomorrow_time;
   return {
     ...config,
     slow_interval: Math.max(1, Number(config.slow_interval || defaultConfig.slow_interval)),
     concurrency: 1,
     candidate_limit: clamp(Number(config.candidate_limit || defaultConfig.candidate_limit), 1, 3),
     cooldown: clamp(Number(config.cooldown || defaultConfig.cooldown), 3, 30),
+    tomorrow_time: tomorrowTime,
   };
 }
 
@@ -221,6 +236,7 @@ function fillForm() {
   els.candidateLimitInput.value = state.config.candidate_limit || 1;
   els.cooldownInput.value = state.config.cooldown || 8;
   els.preferredSeatsInput.value = state.config.preferred_seats || '';
+  els.tomorrowTimeInput.value = state.config.tomorrow_time || defaultConfig.tomorrow_time;
   els.ntfyInput.value = state.config.ntfy_topic || '';
   renderRooms();
 }
@@ -235,6 +251,7 @@ function collectForm() {
     candidate_limit: clamp(Number(els.candidateLimitInput.value || 1), 1, 3),
     cooldown: clamp(Number(els.cooldownInput.value || 8), 3, 30),
     preferred_seats: els.preferredSeatsInput.value.trim(),
+    tomorrow_time: els.tomorrowTimeInput.value || defaultConfig.tomorrow_time,
     ntfy_topic: els.ntfyInput.value.trim(),
     captcha: els.captchaInput.value.trim(),
     rooms: state.config.rooms || [],
@@ -249,6 +266,10 @@ function updateSummary() {
   const room = getSelectedRoom();
   els.summaryLib.textContent = room ? room.name : state.config.lib_id ? String(state.config.lib_id) : '未配置';
   els.summaryCookie.textContent = state.config.cookie ? '已配置' : '未配置';
+  els.summaryTomorrow.textContent = room
+    ? `${room.name} · 空位即抢 · ${state.config.tomorrow_time || defaultConfig.tomorrow_time}`
+    : '未配置';
+  els.tomorrowRoomText.textContent = room ? room.name : '请先在上方选择阅览室';
   els.summaryOpenTime.textContent = `${state.config.slow_interval || defaultConfig.slow_interval} 秒`;
   els.summaryRounds.textContent = String(state.rounds);
 }
@@ -382,15 +403,56 @@ function roomListPayload() {
   };
 }
 
-async function graphql(payload) {
+function tomorrowLayoutPayload(includeSeats = false) {
+  const seatFields = includeSeats
+    ? '\n seats {\n key\n name\n type\n status\n seat_status\n x\n y\n }'
+    : '';
+  return {
+    operationName: 'libLayout',
+    query: `query libLayout($libId: Int!) {\n userAuth {\n prereserve {\n libLayout(libId: $libId) {\n seats_booking\n seats_total\n seats_used${seatFields}\n }\n }\n }\n}`,
+    variables: { libId: Number(state.config.lib_id) },
+  };
+}
+
+function tomorrowSavePayload(seatKey) {
+  const key = String(seatKey).endsWith('.') ? String(seatKey) : `${seatKey}.`;
+  return {
+    operationName: 'save',
+    query:
+      'mutation save($key: String!, $libid: Int!, $captchaCode: String, $captcha: String) {\n userAuth {\n prereserve {\n save(key: $key, libId: $libid, captcha: $captcha, captchaCode: $captchaCode)\n }\n }\n}',
+    variables: {
+      key,
+      libid: Number(state.config.lib_id),
+      captchaCode: state.config.captcha || '',
+      captcha: state.config.captcha || '',
+    },
+  };
+}
+
+function tomorrowInfoPayload() {
+  return {
+    operationName: 'prereserve',
+    query:
+      'query prereserve {\n userAuth {\n prereserve {\n prereserve {\n day\n lib_id\n seat_key\n seat_name\n is_used\n }\n }\n }\n}',
+    variables: {},
+  };
+}
+
+async function graphql(payload, options = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-Trace-Cookie': state.config.cookie,
+    'X-Trace-Authorization': state.config.authorization || '',
+  };
+  if (options.tomorrow) {
+    headers['X-Trace-User-Agent'] =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36 NetType/WIFI MicroMessenger/7.0.20.1781(0x6700143B) WindowsWechat(0x63090719) XWEB/8391 Flue';
+  }
   const response = await fetch('/api/proxy', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Trace-Cookie': state.config.cookie,
-      'X-Trace-Authorization': state.config.authorization || '',
-    },
+    headers,
     body: JSON.stringify(payload),
+    signal: options.signal,
   });
   const text = await response.text();
   let data;
@@ -690,25 +752,28 @@ function formatSeatDebug(seat) {
   return `key=${seat.key}, type=${seat.type}, status=${String(seat.status)}, seat_status=${String(seat.seat_status)}`;
 }
 
-async function handleSuccess(seat) {
+async function handleSuccess(seat, kind = 'leak', verification = null) {
   if (state.success) return;
   state.success = true;
   stopPolling(false);
   const seatName = seat.name || seat.key;
+  const isTomorrow = kind === 'tomorrow';
+  const actionText = isTomorrow ? '明日预约' : '抢座';
   try {
     await consumeHairForSuccess();
   } catch (error) {
     log(`头发扣除失败：${error.message}`, 'error');
   }
-  document.title = '[已抢到] gotolibray';
-  els.stateText.textContent = `已抢到：${seatName}`;
-  els.modeText.textContent = '抢座成功';
+  document.title = isTomorrow ? '[明日预约成功] gotolibray' : '[已抢到] gotolibray';
+  els.stateText.textContent = `${actionText}成功：${seatName}`;
+  els.modeText.textContent = `${actionText}成功`;
   els.monitorPanel.classList.remove('is-running');
   els.monitorPanel.classList.add('is-success');
-  els.successText.textContent = `座位：${seatName}`;
-  log(`抢座成功：${seatName}`, 'success');
+  els.successTitle.textContent = isTomorrow ? '明日预约成功' : '抢到座位了';
+  els.successText.textContent = `座位：${seatName}${verification?.day ? ` · ${verification.day}` : ''}`;
+  log(`${actionText}成功：${seatName}`, 'success');
   playBeep();
-  await sendNtfy(`抢座成功：${seatName}`);
+  await sendNtfy(`${actionText}成功：${seatName}`);
   if (typeof els.successDialog.showModal === 'function') els.successDialog.showModal();
 }
 
@@ -754,7 +819,7 @@ function scheduleNextPoll(mode) {
   if (!state.running) return;
   const delay = nextDelay(mode);
   if (state.worker) {
-    state.worker.postMessage({ type: 'schedule', delay });
+    state.worker.postMessage({ type: 'schedule', delay, task: 'poll' });
   } else {
     state.timer = setTimeout(handlePollTick, delay);
   }
@@ -777,6 +842,268 @@ async function handlePollTick() {
   }
 }
 
+async function resolveTomorrowRoomSeats(signal) {
+  const layout = await graphql(libLayoutPayload(), { signal });
+  const seats = getSeats(layout).filter((seat) => Number(seat.type) === 1 && seat.key && seat.name);
+  if (!seats.length) throw new Error('当前阅览室没有可预约座位');
+  return seats;
+}
+
+function resolveNextTomorrowRunAt(timeText) {
+  const [hour, minute, second = 0] = String(timeText || defaultConfig.tomorrow_time)
+    .split(':')
+    .map(Number);
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+    })
+      .formatToParts(new Date())
+      .filter((part) => part.type !== 'literal')
+      .map((part) => [part.type, Number(part.value)]),
+  );
+  let target = Date.UTC(parts.year, parts.month - 1, parts.day, hour - 8, minute, second);
+  if (target <= Date.now()) target += 24 * 60 * 60 * 1000;
+  return target;
+}
+
+function formatTomorrowRunAt(timestamp) {
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(new Date(timestamp));
+}
+
+function formatRemaining(milliseconds) {
+  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds].map((value) => String(value).padStart(2, '0')).join(':');
+}
+
+async function enterTomorrowQueue(signal) {
+  const response = await fetch('/api/proxy?type=tomorrow-queue', {
+    method: 'POST',
+    headers: { 'X-Trace-Cookie': state.config.cookie },
+    signal,
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.message || data.error || `HTTP ${response.status}`);
+  return data;
+}
+
+function getTomorrowLayout(result) {
+  return result?.data?.userAuth?.prereserve?.libLayout || null;
+}
+
+function getTomorrowAvailableCount(layout) {
+  if (!layout) return null;
+  const total = Number(layout.seats_total);
+  const used = Number(layout.seats_used || 0);
+  const booking = Number(layout.seats_booking || 0);
+  return Number.isFinite(total) ? Math.max(0, total - used - booking) : null;
+}
+
+async function queryTomorrowAvailability(signal) {
+  if (state.tomorrowDetailedLayoutSupported !== false) {
+    try {
+      const result = await graphql(tomorrowLayoutPayload(true), { tomorrow: true, signal });
+      const layout = getTomorrowLayout(result);
+      state.tomorrowDetailedLayoutSupported = Array.isArray(layout?.seats);
+      return {
+        ready: Boolean(layout),
+        availableCount: getTomorrowAvailableCount(layout),
+        seats: Array.isArray(layout?.seats) ? layout.seats : [],
+      };
+    } catch (error) {
+      if (!/(?:Cannot query field|Unknown field).*seats/i.test(error.message)) throw error;
+      state.tomorrowDetailedLayoutSupported = false;
+      log('明日接口未返回座位明细，将根据空位数量低频尝试候选座位', 'warn');
+    }
+  }
+
+  const result = await graphql(tomorrowLayoutPayload(false), { tomorrow: true, signal });
+  const layout = getTomorrowLayout(result);
+  return { ready: Boolean(layout), availableCount: getTomorrowAvailableCount(layout), seats: [] };
+}
+
+function waitWithSignal(milliseconds, signal) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    }, milliseconds);
+    const abort = () => {
+      clearTimeout(timer);
+      reject(new DOMException('任务已停止', 'AbortError'));
+    };
+    if (signal?.aborted) abort();
+    else signal?.addEventListener('abort', abort, { once: true });
+  });
+}
+
+function getTomorrowCandidates(availability) {
+  if (!availability.ready) return [];
+  if (availability.availableCount === 0) return [];
+  const detailedFreeSeats = availability.seats.filter(isFreeSeat);
+  const pool = detailedFreeSeats.length ? detailedFreeSeats : state.tomorrowSeats;
+  return pickCandidates(pool);
+}
+
+async function tryTomorrowCandidates(candidates, signal) {
+  for (const seat of candidates) {
+    if (!state.running) return null;
+    try {
+      els.stateText.textContent = `发现空位，正在尝试 ${seat.name || seat.key}`;
+      await graphql(tomorrowSavePayload(seat.key), { tomorrow: true, signal });
+      return seat;
+    } catch (error) {
+      if (error.name === 'AbortError' || !state.running) throw error;
+      if (error.isGuardRisk || isRiskMessage(error.message)) throw error;
+      state.seatCooldown[seat.key] = Date.now() + (state.config.cooldown || 8) * 1000;
+      log(`明日座位 ${seat.name || seat.key} 未抢到：${error.message}`, 'warn');
+    }
+  }
+  return null;
+}
+
+async function verifyTomorrowReservation(seat, signal) {
+  try {
+    const result = await graphql(tomorrowInfoPayload(), { tomorrow: true, signal });
+    const verification = result?.data?.userAuth?.prereserve?.prereserve || null;
+    const sameLibrary = Number(verification?.lib_id) === Number(state.config.lib_id);
+    const actualKey = String(verification?.seat_key || '').replace(/\.$/, '');
+    const targetKey = String(seat.key).replace(/\.$/, '');
+    if (verification && (!sameLibrary || actualKey !== targetKey)) {
+      log('明日预约验证记录与本次座位不一致，请在官方页面复核', 'warn');
+    }
+    return verification;
+  } catch (error) {
+    if (error.name === 'AbortError' || !state.running) throw error;
+    log(`明日预约结果验证失败：${error.message}`, 'warn');
+    return null;
+  }
+}
+
+function scheduleTomorrowTick() {
+  clearTimeout(state.timer);
+  if (!state.running || state.mode !== 'tomorrow-wait') return;
+  const delay = Math.min(1000, Math.max(0, state.tomorrowRunAt - Date.now()));
+  if (state.worker) state.worker.postMessage({ type: 'schedule', delay, task: 'tomorrow' });
+  else state.timer = setTimeout(handleTomorrowTick, delay);
+}
+
+async function handleTomorrowTick() {
+  if (!state.running || state.mode !== 'tomorrow-wait') return;
+  const remaining = state.tomorrowRunAt - Date.now();
+  if (remaining > 0) {
+    els.countdown.textContent = formatRemaining(remaining);
+    scheduleTomorrowTick();
+    return;
+  }
+  await runTomorrowReservation();
+}
+
+async function runTomorrowReservation() {
+  if (!state.running || !state.tomorrowSeats.length) return;
+  const signal = state.abortController?.signal;
+  const room = getSelectedRoom();
+  state.mode = 'tomorrow';
+  els.countdown.textContent = 'GO';
+  els.modeText.textContent = '明日空位监控';
+  els.stateText.textContent = '正在进入预约排队通道';
+  try {
+    const queue = await enterTomorrowQueue(signal);
+    if (!state.running) return;
+    log(queue.message || '已完成明日预约排队', queue.shouldStop ? 'error' : 'info');
+    if (queue.shouldStop) throw new Error(`排队被拦截：${queue.message}`);
+
+    log(`开始监控 ${room?.name || state.config.lib_id} 的明日空位`, 'success');
+    while (state.running) {
+      const availability = await queryTomorrowAvailability(signal);
+      const candidates = getTomorrowCandidates(availability);
+      if (!candidates.length) {
+        const now = Date.now();
+        els.stateText.textContent = availability.availableCount === 0 ? '当前没有明日空位，继续监控' : '暂未发现可尝试座位';
+        if (now - state.tomorrowNoSeatLogAt >= 5000) {
+          state.tomorrowNoSeatLogAt = now;
+          log('明日预约：当前没有空位，继续监控', 'info');
+        }
+      } else {
+        const countText = availability.availableCount == null ? '' : `约 ${availability.availableCount} 个空位，`;
+        log(`明日预约：${countText}尝试 ${candidates.length} 个候选座位`, 'success');
+        const reservedSeat = await tryTomorrowCandidates(candidates, signal);
+        if (reservedSeat) {
+          const verification = await verifyTomorrowReservation(reservedSeat, signal);
+          if (!state.running) return;
+          await handleSuccess(reservedSeat, 'tomorrow', verification);
+          return;
+        }
+      }
+      await waitWithSignal((state.config.slow_interval || defaultConfig.slow_interval) * 1000, signal);
+    }
+  } catch (error) {
+    if (error.name === 'AbortError' && !state.running) return;
+    if (error.isGuardRisk || isRiskMessage(error.message)) {
+      handleRiskStop(error.message);
+      return;
+    }
+    stopPolling(false);
+    els.countdown.textContent = 'FAIL';
+    els.modeText.textContent = '明日预约失败';
+    els.stateText.textContent = error.message;
+    log(`明日预约失败：${error.message}`, 'error');
+  }
+}
+
+async function startTomorrowReservation() {
+  if (state.running) return;
+  try {
+    validateConfig();
+    state.success = false;
+    state.guardStopped = false;
+    state.running = true;
+    state.mode = 'tomorrow-start';
+    state.abortController = new AbortController();
+    state.seatCooldown = {};
+    state.tomorrowDetailedLayoutSupported = null;
+    state.tomorrowNoSeatLogAt = 0;
+    els.tomorrowBtn.disabled = true;
+    els.stateText.textContent = '正在读取目标阅览室座位';
+    const seats = await resolveTomorrowRoomSeats(state.abortController.signal);
+    if (!state.running || state.mode !== 'tomorrow-start') return;
+    state.tomorrowSeats = seats;
+    state.tomorrowRunAt = resolveNextTomorrowRunAt(state.config.tomorrow_time);
+    ensureWorkerTimer();
+    state.mode = 'tomorrow-wait';
+    document.title = '[等待明日预约] gotolibray';
+    els.modeText.textContent = '明日预约等待中';
+    const room = getSelectedRoom();
+    els.stateText.textContent = `${room?.name || state.config.lib_id} · ${formatTomorrowRunAt(state.tomorrowRunAt)} 开始监控`;
+    els.monitorPanel.classList.remove('is-success');
+    els.monitorPanel.classList.add('is-running');
+    await requestWakeLock();
+    if (!state.running || state.mode !== 'tomorrow-wait') return;
+    log(`明日预约已启动：监控 ${room?.name || state.config.lib_id}，${formatTomorrowRunAt(state.tomorrowRunAt)} 触发`, 'success');
+    scheduleTomorrowTick();
+  } catch (error) {
+    if (error.name === 'AbortError' && !state.running) return;
+    stopPolling(false);
+    log(error.message, 'error');
+    if (/Cookie|阅览室|配置|座位/.test(error.message)) switchTab('config');
+  } finally {
+    els.tomorrowBtn.disabled = false;
+  }
+}
+
 function ensureWorkerTimer() {
   if (state.worker || !window.Worker || !window.Blob || !window.URL) return;
   const code = `
@@ -784,7 +1111,7 @@ function ensureWorkerTimer() {
     self.onmessage = (event) => {
       if (event.data.type === 'schedule') {
         clearTimeout(timer);
-        timer = setTimeout(() => self.postMessage({ type: 'tick' }), event.data.delay);
+        timer = setTimeout(() => self.postMessage({ type: 'tick', task: event.data.task }), event.data.delay);
       }
       if (event.data.type === 'stop') clearTimeout(timer);
     };
@@ -792,7 +1119,9 @@ function ensureWorkerTimer() {
   const blob = new Blob([code], { type: 'application/javascript' });
   state.worker = new Worker(URL.createObjectURL(blob));
   state.worker.onmessage = (event) => {
-    if (event.data?.type === 'tick') handlePollTick();
+    if (event.data?.type !== 'tick') return;
+    if (event.data.task === 'tomorrow') handleTomorrowTick();
+    else handlePollTick();
   };
 }
 
@@ -825,16 +1154,22 @@ async function startPolling() {
 function stopPolling(writeLog = true) {
   clearTimeout(state.timer);
   if (state.worker) state.worker.postMessage({ type: 'stop' });
+  state.abortController?.abort();
+  state.abortController = null;
   state.running = false;
   state.mode = 'idle';
   state.backoffMs = 0;
+  state.tomorrowRunAt = 0;
+  state.tomorrowSeats = [];
+  state.tomorrowDetailedLayoutSupported = null;
+  state.tomorrowNoSeatLogAt = 0;
   document.title = 'gotolibray';
   els.countdown.textContent = 'READY';
   els.modeText.textContent = '已停止';
-  els.stateText.textContent = '轮询未运行';
+  els.stateText.textContent = '当前无运行任务';
   els.monitorPanel.classList.remove('is-running');
   releaseWakeLock();
-  if (writeLog) log('已停止轮询', 'warn');
+  if (writeLog) log('已停止当前任务', 'warn');
 }
 
 async function testHealth() {
@@ -919,6 +1254,7 @@ function bindEvents() {
   });
 
   els.leakBtn.addEventListener('click', () => startPolling());
+  els.tomorrowBtn.addEventListener('click', () => startTomorrowReservation());
   els.checkinBtn.addEventListener('click', checkin);
   els.stopBtn.addEventListener('click', () => stopPolling());
   els.clearLogsBtn.addEventListener('click', () => {

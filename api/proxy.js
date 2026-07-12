@@ -1,6 +1,12 @@
+const WebSocket = require('ws');
+
 const TRACE_GRAPHQL_URL = 'https://wechat.v2.traceint.com/index.php/graphql/';
+const TOMORROW_QUEUE_URL = 'wss://wechat.v2.traceint.com/ws?ns=prereserve/queue';
 const DEFAULT_UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.49';
+const TOMORROW_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36 NetType/WIFI MicroMessenger/7.0.20.1781(0x6700143B) WindowsWechat(0x63090719) XWEB/8391 Flue';
+const QUEUE_PAYLOAD = JSON.stringify({ ns: 'prereserve/queue', msg: '' });
 
 function setCors(req, res) {
   const allowed = (process.env.ALLOWED_ORIGINS || '*')
@@ -45,6 +51,84 @@ function pickHeader(req, name) {
   return Array.isArray(value) ? value[0] : value || '';
 }
 
+function classifyQueueMessage(rawMessage) {
+  const raw = String(rawMessage || '');
+  if (!raw.trim()) return null;
+
+  let message = raw;
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed === 'string') message = parsed;
+    else if (typeof parsed?.msg === 'string') message = parsed.msg;
+  } catch {
+    // 非 JSON 消息仍参与关键字判断。
+  }
+
+  const normalized = `${message}\n${raw}`.toLowerCase();
+  const stopKeywords = ['不在', '未开始', '结束', '已闭馆', '登记了', '已登记'];
+  const continueKeywords = ['ok', '排队成功', 'u6392', '您已经预定了座位', 'u6210', '不需要排队'];
+  if (stopKeywords.some((keyword) => normalized.includes(keyword.toLowerCase()))) {
+    return { shouldStop: true, message };
+  }
+  if (continueKeywords.some((keyword) => normalized.includes(keyword.toLowerCase()))) {
+    return { shouldStop: false, message: `明日预约排队通道返回：${message}` };
+  }
+  return null;
+}
+
+function enterTomorrowReservationQueue(cookie) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let sendTimer = null;
+    let timeoutTimer = null;
+    const socket = new WebSocket(TOMORROW_QUEUE_URL, {
+      headers: {
+        Cookie: cookie,
+        Origin: 'https://web.traceint.com',
+        'User-Agent': TOMORROW_UA,
+      },
+    });
+
+    const finish = (result, settleDelay = 0) => {
+      if (settled) return;
+      settled = true;
+      clearInterval(sendTimer);
+      clearTimeout(timeoutTimer);
+      setTimeout(() => {
+        try {
+          socket.close();
+        } catch {
+          // 关闭失败不影响排队结果。
+        }
+        resolve(result);
+      }, settleDelay);
+    };
+
+    const sendQueueSignal = () => {
+      if (socket.readyState === WebSocket.OPEN) socket.send(QUEUE_PAYLOAD);
+    };
+
+    socket.on('open', () => {
+      sendQueueSignal();
+      sendTimer = setInterval(sendQueueSignal, 200);
+    });
+    socket.on('message', (data) => {
+      const result = classifyQueueMessage(data.toString());
+      if (result) finish(result, result.shouldStop ? 0 : 500);
+    });
+    socket.on('error', (error) => {
+      finish({ shouldStop: false, message: `明日预约排队通道连接异常，继续预约：${error.message}` });
+    });
+    socket.on('close', () => {
+      finish({ shouldStop: false, message: '明日预约排队通道已关闭，继续预约' });
+    });
+    timeoutTimer = setTimeout(
+      () => finish({ shouldStop: false, message: '明日预约排队通道 15 秒内未明确拦截，继续预约' }),
+      15000,
+    );
+  });
+}
+
 module.exports = async function handler(req, res) {
   setCors(req, res);
 
@@ -68,7 +152,6 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const rawBody = await readBody(req);
     const traceCookie = pickHeader(req, 'x-trace-cookie');
     const traceAuthorization =
       pickHeader(req, 'x-trace-authorization') || pickHeader(req, 'authorization');
@@ -80,6 +163,17 @@ module.exports = async function handler(req, res) {
       res.end(JSON.stringify({ error: 'missing_cookie', message: '缺少 X-Trace-Cookie' }));
       return;
     }
+
+    if (req.query?.type === 'tomorrow-queue') {
+      const result = await enterTomorrowReservationQueue(traceCookie);
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store');
+      res.end(JSON.stringify(result));
+      return;
+    }
+
+    const rawBody = await readBody(req);
 
     const upstreamHeaders = {
       Host: 'wechat.v2.traceint.com',
