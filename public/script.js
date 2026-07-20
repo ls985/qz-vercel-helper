@@ -486,6 +486,43 @@ function officialCheckinIndexPayload() {
   };
 }
 
+function singleCheckinConfigPayload(operationName, fieldName) {
+  return {
+    operationName,
+    query: `query ${operationName} {\n userAuth {\n config: user {\n value: getSchConfig(fields: "${fieldName}")\n }\n }\n}`,
+    variables: {},
+  };
+}
+
+async function probeCheckinConfigFields(credentials) {
+  const definitions = [
+    ['probeNotSign', 'reserve.notSign', 'notSign'],
+    ['probeDoorSignOpen', 'adm.doorSignOpen', 'doorSignOpen'],
+    ['probeDoorSignURL', 'adm.doorSignURL', 'doorSignURL'],
+  ];
+  const config = {};
+  const rejected = [];
+
+  for (const [operationName, fieldName, key] of definitions) {
+    try {
+      const result = await graphqlWithTimeout(
+        singleCheckinConfigPayload(operationName, fieldName),
+        CHECKIN_INITIAL_QUERY_TIMEOUT_MS,
+        credentials,
+      );
+      config[key] = decodeCheckinConfigValue(result?.data?.userAuth?.config?.value);
+    } catch (error) {
+      rejected.push(`${key}: ${error.message || '读取失败'}`);
+    }
+  }
+
+  if (!Object.keys(config).length) {
+    throw new Error(`学校拒绝读取全部签到配置字段：${rejected.join('；')}`);
+  }
+  if (rejected.length) log(`部分签到配置字段读取失败：${rejected.join('；')}`, 'warn');
+  return config;
+}
+
 function autoCheckinPayload() {
   return {
     operationName: 'autoSign',
@@ -895,13 +932,31 @@ async function inspectCheckinChannels() {
     } catch (error) {
       if (!/access denied/i.test(error.message || '')) throw error;
       log('学校拒绝了精简查询，正在改用官方签到页原样查询', 'warn');
-      snapshot = parseCheckinSnapshot(
-        await graphqlWithTimeout(
-          officialCheckinIndexPayload(),
-          CHECKIN_INITIAL_QUERY_TIMEOUT_MS,
-          credentials,
-        ),
-      );
+      try {
+        snapshot = parseCheckinSnapshot(
+          await graphqlWithTimeout(
+            officialCheckinIndexPayload(),
+            CHECKIN_INITIAL_QUERY_TIMEOUT_MS,
+            credentials,
+          ),
+        );
+      } catch (officialError) {
+        if (!/access denied/i.test(officialError.message || '')) throw officialError;
+        log('官方组合查询仍被拒绝，正在逐项读取一键和闸机配置', 'warn');
+        const reservationSnapshot = parseCheckinSnapshot(
+          await graphqlWithTimeout(
+            checkinReservationPayload(),
+            CHECKIN_INITIAL_QUERY_TIMEOUT_MS,
+            credentials,
+          ),
+          false,
+        );
+        snapshot = {
+          ...reservationSnapshot,
+          config: await probeCheckinConfigFields(credentials),
+          capabilitiesKnown: true,
+        };
+      }
       updateCheckinSummary(snapshot);
     }
     if (!snapshot.reservation) throw new Error('当前没有可检测签到方式的预约');
