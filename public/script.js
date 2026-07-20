@@ -74,6 +74,7 @@ const els = {
   leakBtn: $('leakBtn'),
   tomorrowBtn: $('tomorrowBtn'),
   remoteCheckinBtn: $('remoteCheckinBtn'),
+  inspectCheckinBtn: $('inspectCheckinBtn'),
   stopBtn: $('stopBtn'),
   configForm: $('configForm'),
   cookieInput: $('cookieInput'),
@@ -810,6 +811,99 @@ function describeCheckinRequirement(snapshot) {
       details.length ? ` ${details.join('；')}` : ''
     }`,
   };
+}
+
+function describeCheckinChannels(snapshot) {
+  const config = snapshot?.config || {};
+  const actions = [];
+  const details = [];
+  const doorOpen = Boolean(config.doorSignOpen);
+  const doorUrl = doorOpen ? safeCheckinUrl(config.doorSignURL) : '';
+  const weixiaoOpen = Boolean(snapshot?.weixiao?.isOpen);
+  const weixiaoUrl = weixiaoOpen ? safeCheckinUrl(snapshot.weixiao.url) : '';
+  const qrHelpUrl = safeCheckinUrl(snapshot?.qrUrl);
+
+  details.push(config.notSign ? '一键签到：开放' : '一键签到：未开放');
+  details.push(
+    doorOpen
+      ? `闸机签到：开放${doorUrl ? '（有官方入口）' : '（需到馆使用闸机）'}`
+      : '闸机签到：配置未开放',
+  );
+  details.push(weixiaoOpen ? '学校专属入口：开放' : '学校专属入口：未开放');
+  if (config.forbidQrValid) details.push(`学校限制：${String(config.forbidQrValid)}`);
+
+  if (doorUrl) actions.push({ label: '打开学校闸机签到入口', url: doorUrl });
+  if (weixiaoUrl) actions.push({ label: '打开学校专属签到入口', url: weixiaoUrl });
+  if (qrHelpUrl) actions.push({ label: '打开二维码签到说明', url: qrHelpUrl });
+
+  return {
+    doorOpen,
+    summary: doorOpen ? '开放闸机签到' : config.notSign ? '支持一键签到' : '需现场签到',
+    message: `只读检测结果：${details.join('；')}`,
+    actions,
+  };
+}
+
+async function inspectCheckinChannels() {
+  if (state.running) {
+    log('请先停止当前捡漏或明日预约任务，再检测签到方式', 'warn');
+    return;
+  }
+  if (state.checkinBusy) {
+    log('签到功能正在处理，请稍候', 'warn');
+    return;
+  }
+  if (!state.config.cookie) {
+    log('请先登录并保存 Cookie', 'warn');
+    switchTab('config');
+    return;
+  }
+
+  const originalText = els.inspectCheckinBtn.textContent;
+  state.checkinBusy = true;
+  els.inspectCheckinBtn.disabled = true;
+  els.remoteCheckinBtn.disabled = true;
+  els.submitArrivalCodeBtn.disabled = true;
+  els.inspectCheckinBtn.textContent = '检测中';
+  els.monitorPanel.setAttribute('aria-busy', 'true');
+  els.countdown.textContent = 'SCAN';
+  els.modeText.textContent = '只读检测签到方式';
+  els.stateText.textContent = '正在读取学校返回的签到配置，不会提交签到请求';
+  els.monitorPanel.classList.remove('is-success');
+  els.monitorPanel.classList.add('is-running');
+
+  try {
+    const snapshot = await queryCheckinSnapshot({
+      cookie: state.config.cookie,
+      authorization: state.config.authorization || '',
+    });
+    if (!snapshot.reservation) throw new Error('当前没有可检测签到方式的预约');
+    const result = describeCheckinChannels(snapshot);
+    state.checkinSummary = result.summary;
+    updateSummary();
+    renderCheckinActionLinks(result.actions);
+    els.countdown.textContent = result.doorOpen ? 'GATE' : 'INFO';
+    els.modeText.textContent = result.doorOpen ? '学校开放闸机签到' : '学校签到方式检测完成';
+    els.stateText.textContent = result.message;
+    els.monitorPanel.classList.remove('is-running');
+    els.monitorPanel.classList.toggle('is-success', result.doorOpen);
+    log(result.message, result.doorOpen ? 'success' : 'warn');
+  } catch (error) {
+    state.checkinSummary = '方式检测失败';
+    updateSummary();
+    els.countdown.textContent = 'FAIL';
+    els.modeText.textContent = '签到方式检测失败';
+    els.stateText.textContent = error.message || '学校签到配置读取失败';
+    els.monitorPanel.classList.remove('is-running', 'is-success');
+    log(`签到方式检测失败：${error.message || '未知错误'}`, 'error');
+  } finally {
+    state.checkinBusy = false;
+    els.inspectCheckinBtn.disabled = false;
+    els.remoteCheckinBtn.disabled = false;
+    els.submitArrivalCodeBtn.disabled = false;
+    els.inspectCheckinBtn.textContent = originalText;
+    els.monitorPanel.setAttribute('aria-busy', 'false');
+  }
 }
 
 function setResultDialogState(kind) {
@@ -1920,6 +2014,7 @@ function bindEvents() {
   els.leakBtn.addEventListener('click', () => startPolling());
   els.tomorrowBtn.addEventListener('click', () => startTomorrowReservation());
   els.remoteCheckinBtn.addEventListener('click', () => remoteCheckin());
+  els.inspectCheckinBtn.addEventListener('click', inspectCheckinChannels);
   els.submitArrivalCodeBtn.addEventListener('click', () => remoteCheckin({ useEmergencyCode: true }));
   els.checkinBtn.addEventListener('click', checkin);
   els.stopBtn.addEventListener('click', () => stopPolling());

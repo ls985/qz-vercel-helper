@@ -118,11 +118,12 @@
               <div><span class="settings-section-icon" aria-hidden="true">签</span><strong id="checkinSettingsTitle">到馆签到</strong></div>
               <small>按学校配置识别通道</small>
             </header>
+            <button class="arrival-code-button" id="inspectCheckinBtn" type="button">仅检测学校签到方式（不提交）</button>
             <label><span>场馆 / 应急签到码（独立通道）</span><textarea id="arrivalCodeInput" rows="2" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-describedby="arrivalCodeHelp" placeholder="仅用于手机扫描场馆码或应急码的学校"></textarea><small id="arrivalCodeHelp">扫码后原样粘贴；本站不写入本地配置，仅在本页临时保留，请求发出后立即清空。</small></label>
             <button class="arrival-code-button" id="submitArrivalCodeBtn" type="button">提交场馆 / 应急码</button>
             <div class="checkin-action-links" id="checkinActionLinks" aria-live="polite" hidden></div>
             <button class="checkin-retry-button" id="resetCheckinAttemptBtn" type="button" hidden>已在官方页确认未签到，允许重试</button>
-            <p class="settings-note">上方按钮仅提交应急码；首页“检测 / 一键签到”按学校限制、一键签到、学校专属入口、官方动态码/馆内终端的顺序识别。无蓝牙不代表学校开放一键签到。</p>
+            <p class="settings-note">“仅检测”只读取学校配置，不发送签到请求；应急码按钮只提交扫码原文。首页“检测 / 一键签到”会按学校配置尝试实际签到。</p>
           </section>
           <label><span>ntfy.sh 频道</span><input id="ntfyInput" type="text" placeholder="可选，例如 my-seat-topic" /></label>
           <div class="actions compact form-actions">
