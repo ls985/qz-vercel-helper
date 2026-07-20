@@ -3,10 +3,8 @@ const LOG_KEY = 'qz-helper-logs-v2';
 const OFFICIAL_WX_APP_ID = 'wx2996d437cd442527';
 const OFFICIAL_GRAPHQL_URL = 'https://wechat.v2.traceint.com/index.php/graphql/';
 const OFFICIAL_WEB_URL = 'https://web.traceint.com/';
-const CHECKIN_VERIFY_AT_MS = [800, 2000, 5000];
 const CHECKIN_INITIAL_QUERY_TIMEOUT_MS = 6000;
 const CHECKIN_MUTATION_WAIT_MS = 6500;
-const CHECKIN_STATUS_QUERY_TIMEOUT_MS = 1800;
 const NTFY_TIMEOUT_MS = 5000;
 
 const defaultConfig = {
@@ -697,13 +695,8 @@ function updateCheckinSummary(snapshot) {
 
   const room = reservation.lib_name || `场馆 ${reservation.lib_id || '-'}`;
   const seat = reservation.seat_name ? ` ${reservation.seat_name} 号` : '';
-  const status = isReservationCheckedIn(reservation) ? '已签到' : '待签到';
-  state.checkinSummary = `${status} · ${room}${seat}`;
+  state.checkinSummary = `待签到 · ${room}${seat}`;
   updateSummary();
-}
-
-function isReservationCheckedIn(reservation) {
-  return Number(reservation?.status) === 2;
 }
 
 function checkinReservationKey(reservation) {
@@ -711,11 +704,6 @@ function checkinReservationKey(reservation) {
   const values = [reservation.lib_id, reservation.seat_key, reservation.date];
   if (values.some((value) => value === null || value === undefined || String(value) === '')) return '';
   return values.map((value) => String(value)).join('|');
-}
-
-function isSameCheckinReservation(expected, actual) {
-  const expectedKey = checkinReservationKey(expected);
-  return Boolean(expectedKey) && expectedKey === checkinReservationKey(actual);
 }
 
 function safeCheckinUrl(value) {
@@ -735,7 +723,7 @@ function getPendingCheckinAttempt(reservation) {
   const attempt = state.checkinAttempt;
   const reservationKey = checkinReservationKey(reservation);
   if (!attempt || !reservationKey || attempt.reservationKey !== reservationKey) return null;
-  if (!['pending', 'unknown', 'action-required'].includes(attempt.status)) {
+  if (!['pending', 'unknown', 'action-required', 'verified'].includes(attempt.status)) {
     state.checkinAttempt = null;
     return null;
   }
@@ -822,53 +810,6 @@ function describeCheckinRequirement(snapshot) {
       details.length ? ` ${details.join('；')}` : ''
     }`,
   };
-}
-
-async function verifyDispatchedCheckin(expectedReservation, dispatchedAt, credentials, signal) {
-  let latestSnapshot = { reservation: expectedReservation };
-  let lastError = null;
-
-  for (const targetMs of CHECKIN_VERIFY_AT_MS) {
-    if (signal?.aborted) return { verified: false, snapshot: latestSnapshot, lastError, aborted: true };
-    const delay = Math.max(0, targetMs - (Date.now() - dispatchedAt));
-    if (delay) {
-      try {
-        await waitWithSignal(delay, signal);
-      } catch (error) {
-        if (signal?.aborted || error.name === 'AbortError') {
-          return { verified: false, snapshot: latestSnapshot, lastError, aborted: true };
-        }
-        throw error;
-      }
-    }
-
-    try {
-      const snapshot = parseCheckinSnapshot(
-        await graphqlWithTimeout(checkinReservationPayload(), CHECKIN_STATUS_QUERY_TIMEOUT_MS, {
-          ...credentials,
-          signal,
-        }),
-        false,
-      );
-      if (!isSameCheckinReservation(expectedReservation, snapshot.reservation)) {
-        log('签到复核返回的不是刚才那条预约，已忽略该结果', 'warn');
-        continue;
-      }
-      latestSnapshot = snapshot;
-      updateCheckinSummary(snapshot);
-      if (isReservationCheckedIn(snapshot.reservation)) {
-        return { verified: true, snapshot, lastError: null };
-      }
-    } catch (error) {
-      if (signal?.aborted || error.name === 'AbortError') {
-        return { verified: false, snapshot: latestSnapshot, lastError, aborted: true };
-      }
-      lastError = error;
-      log(`签到状态复核暂未完成：${error.message}`, 'warn');
-    }
-  }
-
-  return { verified: false, snapshot: latestSnapshot, lastError };
 }
 
 function setResultDialogState(kind) {
@@ -1029,18 +970,6 @@ async function remoteCheckin({ useEmergencyCode = false } = {}) {
       setCheckinRetryVisible(false);
       throw new Error('当前没有可签到的预约');
     }
-    if (isReservationCheckedIn(before.reservation)) {
-      state.checkinAttempt = null;
-      setCheckinRetryVisible(false);
-      els.countdown.textContent = 'DONE';
-      els.modeText.textContent = '已完成到馆签到';
-      els.stateText.textContent = `${before.reservation.lib_name || '当前场馆'} · ${before.reservation.seat_name || '当前座位'}`;
-      els.monitorPanel.classList.remove('is-running');
-      els.monitorPanel.classList.add('is-success');
-      log('当前预约已经处于学习中，无需重复签到', 'success');
-      return;
-    }
-
     const currentReservationKey = checkinReservationKey(before.reservation);
     if (
       state.checkinAttempt &&
@@ -1051,6 +980,18 @@ async function remoteCheckin({ useEmergencyCode = false } = {}) {
     }
     const pendingAttempt = getPendingCheckinAttempt(before.reservation);
     if (pendingAttempt) {
+      if (pendingAttempt.status === 'verified') {
+        state.checkinSummary = `已签到 · ${before.reservation.lib_name || '当前场馆'} ${before.reservation.seat_name || ''}`;
+        updateSummary();
+        els.countdown.textContent = 'DONE';
+        els.modeText.textContent = '本页面已确认签到成功';
+        els.stateText.textContent = '学校签到接口已经明确返回成功，未重复提交请求';
+        els.monitorPanel.classList.remove('is-running');
+        els.monitorPanel.classList.add('is-success');
+        setCheckinRetryVisible(false);
+        log('本页面已记录当前预约签到成功，未重复发送签到 mutation', 'success');
+        return;
+      }
       if (pendingAttempt.status === 'action-required' && pendingAttempt.actionUrl) {
         state.checkinSummary = '需页面确认';
         updateSummary();
@@ -1078,11 +1019,11 @@ async function remoteCheckin({ useEmergencyCode = false } = {}) {
         log('同一预约结果仍待确认，未再次发送签到 mutation', 'warn');
         return;
       }
-      state.checkinSummary = pendingAttempt.status === 'pending' ? '正在复核' : '结果待确认';
+      state.checkinSummary = pendingAttempt.status === 'pending' ? '正在确认' : '结果待确认';
       updateSummary();
       els.countdown.textContent = 'WAIT';
       els.modeText.textContent = '已阻止重复签到';
-      els.stateText.textContent = '同一预约正在提交或复核，请稍候';
+      els.stateText.textContent = '同一预约正在提交或等待接口确认，请稍候';
       els.monitorPanel.classList.remove('is-running', 'is-success');
       log('已阻止同一预约的重复签到请求', 'warn');
       return;
@@ -1122,7 +1063,7 @@ async function remoteCheckin({ useEmergencyCode = false } = {}) {
       status: 'pending',
     };
     state.checkinAttempt = checkinAttempt;
-    state.checkinSummary = '正在复核';
+    state.checkinSummary = '正在确认';
     setCheckinRetryVisible(false);
     updateSummary();
 
@@ -1132,30 +1073,16 @@ async function remoteCheckin({ useEmergencyCode = false } = {}) {
       signal: mutationController.signal,
     });
     if (hasEmergencyCode) els.arrivalCodeInput.value = '';
-    const verificationController = new AbortController();
-    const verificationPromise = verifyDispatchedCheckin(
-      before.reservation,
-      dispatchedAt,
-      checkinCredentials,
-      verificationController.signal,
-    );
     const mutationOutcomePromise = waitForCheckinMutation(mutationPromise, fieldName, mutationController);
 
-    actionButton.textContent = '复核中';
-    els.stateText.textContent = '请求仅提交一次，正在于 0.8 / 2 / 5 秒复核同一预约';
+    actionButton.textContent = '确认中';
+    els.stateText.textContent = '请求仅提交一次，正在等待学校签到接口确认';
     const mutationOutcome = await mutationOutcomePromise;
     const mutationError = mutationOutcome.error;
 
     if (mutationError && [4, 5].includes(Number(mutationError.remoteCode))) {
       const actionUrl = safeCheckinUrl(mutationError.actionUrl || '');
       if (actionUrl) {
-        verificationController.abort();
-        const interruptedVerification = await verificationPromise;
-        if (interruptedVerification.verified) {
-          checkinAttempt.status = 'verified';
-          await showRemoteCheckinOutcome(interruptedVerification.snapshot, method, true);
-          return;
-        }
         checkinAttempt.status = 'action-required';
         checkinAttempt.actionUrl = actionUrl;
         setCheckinRetryVisible(false);
@@ -1173,24 +1100,17 @@ async function remoteCheckin({ useEmergencyCode = false } = {}) {
       mutationError.message = `${mutationError.message}；接口返回的确认地址格式无效`;
     }
 
-    const verification = await verificationPromise;
-    if (verification.verified) {
-      checkinAttempt.status = 'verified';
-      await showRemoteCheckinOutcome(verification.snapshot, method, true);
-      return;
-    }
-
     if (mutationError) {
       const outcomeUnknown =
         !mutationOutcome.settled || !mutationError.checkinRejected;
       if (outcomeUnknown) checkinAttempt.status = 'unknown';
       else if (state.checkinAttempt === checkinAttempt) state.checkinAttempt = null;
-      await showRemoteCheckinError(verification.snapshot, method, mutationError, outcomeUnknown);
+      await showRemoteCheckinError(before, method, mutationError, outcomeUnknown);
       return;
     }
 
-    checkinAttempt.status = 'unknown';
-    await showRemoteCheckinOutcome(verification.snapshot, method, false);
+    checkinAttempt.status = 'verified';
+    await showRemoteCheckinOutcome(before, method, true);
   } catch (error) {
     if (state.checkinSummary !== '无当前预约') state.checkinSummary = '签到检测失败';
     updateSummary();
@@ -2071,7 +1991,7 @@ function bindEvents() {
   });
   els.resetCheckinAttemptBtn.addEventListener('click', () => {
     if (state.checkinBusy) {
-      log('签到仍在复核中，请稍候', 'warn');
+      log('签到请求仍在等待接口确认，请稍候', 'warn');
       return;
     }
     if (state.checkinAttempt?.status !== 'unknown') {
