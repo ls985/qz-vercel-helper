@@ -480,7 +480,7 @@ function officialCheckinIndexPayload() {
     query:
       'query index($url: String!, $pos: String!, $param: [hash]) {\n userAuth {\n reserve {\n reserve {\n token\n status\n user_id\n user_nick\n sch_id\n sch_name\n lib_id\n lib_name\n lib_floor\n seat_name\n }\n qrUrl\n weixiao {\n isOpen\n url\n pic\n }\n }\n webSocket {\n url\n qrType\n protocol\n }\n config: user {\n notSign: getSchConfig(fields: "reserve.notSign")\n blueSignOpen: getSchConfig(fields: "adm.blueSignOpen")\n doorSignOpen: getSchConfig(fields: "adm.doorSignOpen")\n doorSignURL: getSchConfig(fields: "adm.doorSignURL")\n forbidQrValid: getSchConfig(fields: "forbidQrValid", extra: true)\n }\n }\n wechatJSSDK(url: $url) {\n appId\n timestamp\n nonceStr\n signature\n }\n ad(pos: $pos, param: $param) {\n name\n pic\n url\n }\n}',
     variables: {
-      url: OFFICIAL_WEB_URL,
+      url: 'https://web.traceint.com/web/',
       pos: '新版-签到页面-中间',
     },
   };
