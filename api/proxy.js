@@ -110,7 +110,8 @@ function enterTomorrowReservationQueue(cookie) {
 
     socket.on('open', () => {
       sendQueueSignal();
-      sendTimer = setInterval(sendQueueSignal, 200);
+      // 排队通道不需要高频轰炸；降低频率可显著减少触发上游风控的概率。
+      sendTimer = setInterval(sendQueueSignal, 1000);
     });
     socket.on('message', (data) => {
       const result = classifyQueueMessage(data.toString());
@@ -123,8 +124,8 @@ function enterTomorrowReservationQueue(cookie) {
       finish({ shouldStop: false, message: '明日预约排队通道已关闭，继续预约' });
     });
     timeoutTimer = setTimeout(
-      () => finish({ shouldStop: false, message: '明日预约排队通道 15 秒内未明确拦截，继续预约' }),
-      15000,
+      () => finish({ shouldStop: false, message: '明日预约排队通道 8 秒内未明确拦截，继续预约' }),
+      8000,
     );
   });
 }

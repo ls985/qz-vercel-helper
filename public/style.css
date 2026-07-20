@@ -29,6 +29,7 @@ button { min-height: 42px; border: 1px solid var(--line); border-radius: var(--r
 button:hover { border-color: #3b4a5c; background: #1a2430; color: var(--text); }
 button:active { transform: translateY(1px) scale(0.99); }
 button:disabled { cursor: not-allowed; opacity: 0.5; transform: none; }
+button:focus-visible, a:focus-visible { outline: 3px solid rgba(138, 164, 255, 0.55); outline-offset: 3px; }
 button.primary { border-color: transparent; background: var(--mint); color: #07120e; font-weight: 750; box-shadow: 0 9px 24px rgba(52, 211, 153, 0.12); }
 button.primary:hover { background: #87edc5; box-shadow: 0 11px 28px rgba(52, 211, 153, 0.2); }
 button.danger { border-color: rgba(255, 117, 117, 0.28); background: rgba(255, 117, 117, 0.06); color: var(--danger); }
@@ -88,9 +89,11 @@ small { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; l
 .primary-action { margin-top: 20px; }
 .primary-action button { width: 100%; min-height: 50px; font-size: 15px; }
 .primary-action small { margin-top: 7px; text-align: center; }
-.booking-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.booking-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
 .tomorrow-button { border-color: rgba(138, 164, 255, 0.34); background: rgba(138, 164, 255, 0.12); color: #a8bbff; font-weight: 750; }
 .tomorrow-button:hover { border-color: rgba(138, 164, 255, 0.56); background: rgba(138, 164, 255, 0.2); color: #c3ceff; }
+.remote-checkin-button { border-color: rgba(197, 149, 255, 0.34); background: rgba(197, 149, 255, 0.1); color: #d7b8ff; font-weight: 750; }
+.remote-checkin-button:hover { border-color: rgba(197, 149, 255, 0.56); background: rgba(197, 149, 255, 0.18); color: #ead9ff; }
 .quick-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 11px; }
 .checkin-button { border-color: rgba(246, 200, 95, 0.25); background: var(--gold); color: #151105; font-weight: 750; }
 .checkin-button:hover { border-color: transparent; background: #ffd776; color: #151105; }
@@ -119,7 +122,17 @@ small { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; l
 .form { display: grid; gap: 14px; }
 .form-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
 label span, .label-title { display: block; margin-bottom: 7px; color: var(--soft); font-size: 13px; font-weight: 650; }
-.tomorrow-settings { display: grid; gap: 13px; border: 1px solid rgba(138, 164, 255, 0.24); border-radius: var(--radius); padding: 14px; background: linear-gradient(145deg, rgba(138, 164, 255, 0.08), rgba(138, 164, 255, 0.025)); }
+.tomorrow-settings, .checkin-settings { display: grid; gap: 13px; border: 1px solid rgba(138, 164, 255, 0.24); border-radius: var(--radius); padding: 14px; background: linear-gradient(145deg, rgba(138, 164, 255, 0.08), rgba(138, 164, 255, 0.025)); }
+.checkin-settings { border-color: rgba(197, 149, 255, 0.24); background: linear-gradient(145deg, rgba(197, 149, 255, 0.07), rgba(197, 149, 255, 0.02)); }
+.settings-note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.arrival-code-button { border-color: rgba(197, 149, 255, 0.34); background: rgba(197, 149, 255, 0.12); color: #dfc7ff; font-weight: 750; }
+.arrival-code-button:hover { border-color: rgba(197, 149, 255, 0.56); background: rgba(197, 149, 255, 0.2); color: #f0e4ff; }
+.checkin-action-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.checkin-action-links[hidden] { display: none; }
+.checkin-route-link { display: inline-flex; min-height: 38px; align-items: center; justify-content: center; border: 1px solid rgba(110, 231, 183, 0.3); border-radius: var(--radius); padding: 8px 11px; background: rgba(110, 231, 183, 0.08); color: var(--mint); font-size: 12px; font-weight: 750; text-decoration: none; }
+.checkin-route-link:hover { border-color: rgba(110, 231, 183, 0.5); background: rgba(110, 231, 183, 0.14); color: #9bf0cf; }
+.checkin-retry-button { border-color: rgba(246, 200, 95, 0.34); background: rgba(246, 200, 95, 0.08); color: var(--gold); font-weight: 750; }
+.checkin-retry-button:hover { border-color: rgba(246, 200, 95, 0.55); background: rgba(246, 200, 95, 0.14); color: #ffe29b; }
 .settings-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .settings-section-head > div { display: flex; min-width: 0; align-items: center; gap: 9px; }
 .settings-section-head strong { color: var(--text); font-size: 14px; }
@@ -155,6 +168,7 @@ label span, .label-title { display: block; margin-bottom: 7px; color: var(--soft
 .success-dialog::backdrop, .action-dialog::backdrop { background: rgba(3, 6, 9, 0.78); backdrop-filter: blur(4px); animation: fadeIn 180ms ease both; }
 .success-dialog { text-align: center; }
 .success-mark { display: grid; width: 54px; height: 54px; margin: 0 auto 14px; place-items: center; border-radius: 50%; background: rgba(110, 231, 183, 0.12); color: var(--mint); font-size: 26px; animation: rewardBounce 600ms ease 120ms both; }
+.success-dialog.is-pending .success-mark { background: rgba(246, 200, 95, 0.12); color: var(--gold); }
 .success-dialog p { margin: 10px 0 20px; color: var(--muted); }
 .success-dialog button { width: 100%; }
 
@@ -260,10 +274,13 @@ label span, .label-title { display: block; margin-bottom: 7px; color: var(--soft
   .hero-panel { padding: 16px; }
   .countdown { font-size: clamp(38px, 13vw, 50px); }
   .signal-badge span { display: none; }
+  .booking-actions { grid-template-columns: 1fr 1fr; }
+  .remote-checkin-button { grid-column: 1 / -1; }
   .form-row, .actions { grid-template-columns: 1fr; }
   .actions.compact { grid-template-columns: 1fr; }
   .settings-panel { padding: 14px; }
-  .tomorrow-settings { padding: 13px; }
+  .tomorrow-settings, .checkin-settings { padding: 13px; }
+  .settings-section-head small { max-width: 46%; white-space: normal; text-align: right; }
   .log-item { grid-template-columns: 64px 1fr; }
   .admin-topbar { padding: 0 14px; }
   .admin-content { width: min(calc(100% - 24px), 1280px); padding-top: 18px; }

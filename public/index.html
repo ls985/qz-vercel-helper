@@ -28,15 +28,15 @@
             <p class="eyebrow">头发账户</p>
             <div class="balance-value"><strong id="hairBalance">0</strong><span>根头发</span></div>
           </div>
-          <span class="checkin-state" id="checkinState">今日可签到</span>
+          <span class="checkin-state" id="checkinState">今日奖励可领</span>
         </section>
 
-        <section class="hero-panel reveal-item" id="monitorPanel">
+        <section class="hero-panel reveal-item" id="monitorPanel" aria-busy="false">
           <div class="monitor-head">
             <div>
               <p class="eyebrow" id="modeText">捡漏监控</p>
               <div class="countdown" id="countdown">READY</div>
-              <p class="subline" id="stateText">请先保存配置</p>
+              <p class="subline" id="stateText" role="status" aria-live="polite">请先保存配置</p>
             </div>
             <div class="signal-badge"><i></i><span>服务在线</span></div>
           </div>
@@ -44,8 +44,9 @@
             <div class="booking-actions">
               <button class="primary" id="leakBtn" type="button">开始捡漏</button>
               <button class="tomorrow-button" id="tomorrowBtn" type="button">明日预约</button>
+              <button class="remote-checkin-button" id="remoteCheckinBtn" type="button">检测 / 一键签到</button>
             </div>
-            <small>预约成功后消耗 1 根头发</small>
+            <small>预约成功后消耗 1 根头发；仅学校开放一键签到时可直接确认到馆</small>
           </div>
           <div class="quick-actions">
             <button class="checkin-button" id="checkinBtn" type="button">签到领头发</button>
@@ -62,6 +63,7 @@
           <div class="summary-item"><span>阅览室</span><strong id="summaryLib">未配置</strong></div>
           <div class="summary-item"><span>Cookie</span><strong id="summaryCookie">未配置</strong></div>
           <div class="summary-item"><span>明日预约</span><strong id="summaryTomorrow">未配置</strong></div>
+          <div class="summary-item"><span>到馆签到</span><strong id="summaryCheckin" aria-live="polite">未检测</strong></div>
           <div class="summary-item admin-only" hidden><span>轮询间隔</span><strong id="summaryOpenTime">1.5 秒</strong></div>
           <div class="summary-item admin-only" hidden><span>请求次数</span><strong id="summaryRounds">0</strong></div>
         </section>
@@ -109,6 +111,18 @@
               <label><span>目标阅览室</span><strong class="readonly-value" id="tomorrowRoomText">请先在上方选择阅览室</strong><small>跟随上方“阅览室”选项</small></label>
               <label><span>触发时间</span><input id="tomorrowTimeInput" type="time" step="1" value="20:00:00" /><small>默认 20:00:00</small></label>
             </div>
+            <p class="settings-note">明日空位采用约 8 秒的保守轮询并带随机抖动；检测到风控、验证码或登录异常会自动停止。平台可能禁止自动化预约，请以官方页面为准。</p>
+          </section>
+          <section class="checkin-settings" aria-labelledby="checkinSettingsTitle">
+            <header class="settings-section-head">
+              <div><span class="settings-section-icon" aria-hidden="true">签</span><strong id="checkinSettingsTitle">到馆签到</strong></div>
+              <small>按学校配置识别通道</small>
+            </header>
+            <label><span>场馆 / 应急签到码（独立通道）</span><textarea id="arrivalCodeInput" rows="2" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-describedby="arrivalCodeHelp" placeholder="仅用于手机扫描场馆码或应急码的学校"></textarea><small id="arrivalCodeHelp">扫码后原样粘贴；本站不写入本地配置，仅在本页临时保留，请求发出后立即清空。</small></label>
+            <button class="arrival-code-button" id="submitArrivalCodeBtn" type="button">提交场馆 / 应急码</button>
+            <div class="checkin-action-links" id="checkinActionLinks" aria-live="polite" hidden></div>
+            <button class="checkin-retry-button" id="resetCheckinAttemptBtn" type="button" hidden>已在官方页确认未签到，允许重试</button>
+            <p class="settings-note">上方按钮仅提交应急码；首页“检测 / 一键签到”按学校限制、一键签到、学校专属入口、官方动态码/馆内终端的顺序识别。无蓝牙不代表学校开放一键签到。</p>
           </section>
           <label><span>ntfy.sh 频道</span><input id="ntfyInput" type="text" placeholder="可选，例如 my-seat-topic" /></label>
           <div class="actions compact form-actions">
@@ -133,8 +147,8 @@
       <button data-tab="logs" type="button"><span aria-hidden="true">≡</span>日志</button>
     </nav>
 
-    <dialog class="success-dialog" id="successDialog">
-      <div class="success-mark">✓</div><h2 id="successTitle">抢到座位了</h2><p id="successText">请尽快确认预约状态。</p>
+    <dialog class="success-dialog" id="successDialog" aria-labelledby="successTitle" aria-describedby="successText">
+      <div class="success-mark" id="successMark" aria-hidden="true">✓</div><h2 id="successTitle">抢到座位了</h2><p id="successText">请尽快确认预约状态。</p>
       <button class="primary" id="closeSuccessBtn" type="button">知道了</button>
     </dialog>
     <script src="./script.js"></script>

@@ -2,12 +2,19 @@ const STORAGE_KEY = 'qz-helper-config-v2';
 const LOG_KEY = 'qz-helper-logs-v2';
 const OFFICIAL_WX_APP_ID = 'wx2996d437cd442527';
 const OFFICIAL_GRAPHQL_URL = 'https://wechat.v2.traceint.com/index.php/graphql/';
+const OFFICIAL_WEB_URL = 'https://web.traceint.com/';
+const CHECKIN_VERIFY_AT_MS = [800, 2000, 5000];
+const CHECKIN_INITIAL_QUERY_TIMEOUT_MS = 6000;
+const CHECKIN_MUTATION_WAIT_MS = 6500;
+const CHECKIN_STATUS_QUERY_TIMEOUT_MS = 1800;
+const NTFY_TIMEOUT_MS = 5000;
 
 const defaultConfig = {
   cookie: '',
   authorization: '',
   lib_id: '',
   slow_interval: 1.5,
+  tomorrow_interval: 8,
   concurrency: 1,
   candidate_limit: 1,
   cooldown: 8,
@@ -38,6 +45,9 @@ const state = {
   abortController: null,
   tomorrowDetailedLayoutSupported: null,
   tomorrowNoSeatLogAt: 0,
+  checkinSummary: '未检测',
+  checkinAttempt: null,
+  checkinBusy: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -60,10 +70,12 @@ const els = {
   summaryLib: $('summaryLib'),
   summaryCookie: $('summaryCookie'),
   summaryTomorrow: $('summaryTomorrow'),
+  summaryCheckin: $('summaryCheckin'),
   summaryOpenTime: $('summaryOpenTime'),
   summaryRounds: $('summaryRounds'),
   leakBtn: $('leakBtn'),
   tomorrowBtn: $('tomorrowBtn'),
+  remoteCheckinBtn: $('remoteCheckinBtn'),
   stopBtn: $('stopBtn'),
   configForm: $('configForm'),
   cookieInput: $('cookieInput'),
@@ -79,6 +91,10 @@ const els = {
   preferredSeatsInput: $('preferredSeatsInput'),
   tomorrowRoomText: $('tomorrowRoomText'),
   tomorrowTimeInput: $('tomorrowTimeInput'),
+  arrivalCodeInput: $('arrivalCodeInput'),
+  submitArrivalCodeBtn: $('submitArrivalCodeBtn'),
+  checkinActionLinks: $('checkinActionLinks'),
+  resetCheckinAttemptBtn: $('resetCheckinAttemptBtn'),
   ntfyInput: $('ntfyInput'),
   authUrlInput: $('authUrlInput'),
   copyLoginLinkBtn: $('copyLoginLinkBtn'),
@@ -90,6 +106,7 @@ const els = {
   clearLogsBtn: $('clearLogsBtn'),
   logList: $('logList'),
   successDialog: $('successDialog'),
+  successMark: $('successMark'),
   successTitle: $('successTitle'),
   successText: $('successText'),
   closeSuccessBtn: $('closeSuccessBtn'),
@@ -125,7 +142,7 @@ function updateUserPanel() {
   els.hairBalance.classList.remove('value-pop');
   requestAnimationFrame(() => els.hairBalance.classList.add('value-pop'));
   const checkedIn = state.currentUser?.lastCheckinDate === todayKey();
-  els.checkinState.textContent = checkedIn ? '今日已签到' : '今日可签到';
+  els.checkinState.textContent = checkedIn ? '今日奖励已领' : '今日奖励可领';
   els.checkinState.classList.toggle('done', checkedIn);
   els.checkinBtn.textContent = checkedIn ? '今日已签到' : '签到领头发';
   els.checkinBtn.disabled = checkedIn;
@@ -219,6 +236,7 @@ function normalizeConfig(config) {
   return {
     ...config,
     slow_interval: Math.max(1, Number(config.slow_interval || defaultConfig.slow_interval)),
+    tomorrow_interval: clamp(Number(config.tomorrow_interval || defaultConfig.tomorrow_interval), 6, 30),
     concurrency: 1,
     candidate_limit: clamp(Number(config.candidate_limit || defaultConfig.candidate_limit), 1, 3),
     cooldown: clamp(Number(config.cooldown || defaultConfig.cooldown), 3, 30),
@@ -269,6 +287,7 @@ function updateSummary() {
   els.summaryTomorrow.textContent = room
     ? `${room.name} · 空位即抢 · ${state.config.tomorrow_time || defaultConfig.tomorrow_time}`
     : '未配置';
+  els.summaryCheckin.textContent = state.checkinSummary;
   els.tomorrowRoomText.textContent = room ? room.name : '请先在上方选择阅览室';
   els.summaryOpenTime.textContent = `${state.config.slow_interval || defaultConfig.slow_interval} 秒`;
   els.summaryRounds.textContent = String(state.rounds);
@@ -438,11 +457,46 @@ function tomorrowInfoPayload() {
   };
 }
 
+function checkinStatusPayload() {
+  return {
+    operationName: 'checkinStatus',
+    query:
+      'query checkinStatus {\n userAuth {\n reserve {\n reserve {\n token\n status\n sch_id\n sch_name\n lib_id\n lib_name\n lib_floor\n seat_key\n seat_name\n date\n exp_date\n exp_date_str\n validate_date\n hold_date\n }\n qrUrl\n weixiao {\n isOpen\n url\n pic\n }\n }\n config: user {\n notSign: getSchConfig(fields: "reserve.notSign")\n blueSignOpen: getSchConfig(fields: "adm.blueSignOpen")\n doorSignOpen: getSchConfig(fields: "adm.doorSignOpen")\n doorSignURL: getSchConfig(fields: "adm.doorSignURL")\n forbidQrValid: getSchConfig(fields: "forbidQrValid", extra: true)\n }\n }\n}',
+    variables: {},
+  };
+}
+
+function checkinReservationPayload() {
+  return {
+    operationName: 'checkinReservation',
+    query:
+      'query checkinReservation {\n userAuth {\n reserve {\n reserve {\n token\n status\n sch_name\n lib_id\n lib_name\n lib_floor\n seat_key\n seat_name\n date\n exp_date\n exp_date_str\n validate_date\n hold_date\n }\n }\n }\n}',
+    variables: {},
+  };
+}
+
+function autoCheckinPayload() {
+  return {
+    operationName: 'autoSign',
+    query: 'mutation autoSign {\n userAuth {\n reserve {\n autoSign\n }\n }\n}',
+    variables: {},
+  };
+}
+
+function emergencyCheckinPayload(qrData) {
+  return {
+    operationName: 'offlineScan',
+    query:
+      'mutation offlineScan($qr: String!) {\n userAuth {\n reserve {\n offlineScan(qrData: $qr)\n }\n }\n}',
+    variables: { qr: qrData },
+  };
+}
+
 async function graphql(payload, options = {}) {
   const headers = {
     'Content-Type': 'application/json',
-    'X-Trace-Cookie': state.config.cookie,
-    'X-Trace-Authorization': state.config.authorization || '',
+    'X-Trace-Cookie': options.cookie ?? state.config.cookie,
+    'X-Trace-Authorization': options.authorization ?? state.config.authorization ?? '',
   };
   if (options.tomorrow) {
     headers['X-Trace-User-Agent'] =
@@ -462,22 +516,81 @@ async function graphql(payload, options = {}) {
     throw new Error(`接口返回非 JSON：${text.slice(0, 120)}`);
   }
   if (!response.ok) {
-    throwGuardedError(data.message || data.error || `HTTP ${response.status}`);
+    const error = new Error(data.message || data.error || `HTTP ${response.status}`);
+    error.httpStatus = response.status;
+    error.remoteCode = data.code ?? data.error?.code;
+    error.actionUrl = data.url ?? data.error?.url ?? '';
+    error.isGuardRisk = isRiskMessage(error.message);
+    throw error;
   }
   if (data.errors?.length) {
     const message = data.errors.map(formatGraphqlError).filter(Boolean).join('；');
     const error = new Error(message || 'GraphQL 返回空错误');
     error.graphqlErrors = data.errors;
+    const structuredError =
+      data.errors.find(
+        (item) => [4, 5].includes(Number(graphqlErrorCode(item))) && graphqlErrorActionUrl(item),
+      ) ||
+      data.errors.find((item) => graphqlErrorActionUrl(item)) ||
+      data.errors.find((item) => graphqlErrorCode(item) != null) ||
+      data.errors.find((item) => item && typeof item === 'object') ||
+      {};
+    error.remoteCode = graphqlErrorCode(structuredError);
+    error.actionUrl = graphqlErrorActionUrl(structuredError);
     error.isGuardRisk = isRiskMessage(error.message);
     throw error;
   }
   return data;
 }
 
-function throwGuardedError(message) {
-  const error = new Error(message || '请求失败');
-  error.isGuardRisk = isRiskMessage(error.message);
-  throw error;
+async function graphqlWithTimeout(payload, timeoutMs, options = {}) {
+  const controller = new AbortController();
+  const parentSignal = options.signal;
+  const abortFromParent = () => controller.abort();
+  if (parentSignal?.aborted) controller.abort();
+  else parentSignal?.addEventListener('abort', abortFromParent, { once: true });
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await graphql(payload, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted && !parentSignal?.aborted) {
+      const timeoutError = new Error('签到状态查询超时');
+      timeoutError.name = 'TimeoutError';
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    parentSignal?.removeEventListener('abort', abortFromParent);
+  }
+}
+
+function waitForCheckinMutation(mutationPromise, fieldName, abortController) {
+  const observed = mutationPromise
+    .then((result) => {
+      assertCheckinAccepted(result, fieldName);
+      return { settled: true, result, error: null };
+    })
+    .catch((error) => ({ settled: true, result: null, error }));
+
+  return new Promise((resolve) => {
+    let finished = false;
+    const timer = setTimeout(() => {
+      finished = true;
+      abortController?.abort();
+      const error = new Error('签到请求已发出，但在限定时间内未返回');
+      error.checkinTimedOut = true;
+      resolve({ settled: false, result: null, error });
+    }, CHECKIN_MUTATION_WAIT_MS);
+
+    observed.then((outcome) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      resolve(outcome);
+    });
+  });
 }
 
 function isRiskMessage(message) {
@@ -501,6 +614,7 @@ function formatGraphqlError(error) {
   if (!error || typeof error !== 'object') return String(error || '');
   const parts = [
     error.message,
+    error.msg,
     error.debugMessage,
     error.extensions?.code,
     error.extensions?.category,
@@ -508,6 +622,600 @@ function formatGraphqlError(error) {
   ].filter(Boolean);
   if (parts.length) return parts.join(' / ');
   return JSON.stringify(error);
+}
+
+function graphqlErrorCode(error) {
+  if (!error || typeof error !== 'object') return undefined;
+  return error.code ?? error.extensions?.code ?? error.extensions?.data?.code ?? error.extensions?.exception?.code;
+}
+
+function graphqlErrorActionUrl(error) {
+  if (!error || typeof error !== 'object') return '';
+  return error.url ?? error.extensions?.url ?? error.extensions?.data?.url ?? error.extensions?.exception?.url ?? '';
+}
+
+function decodeCheckinConfigValue(value) {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function decodeCheckinConfig(config) {
+  return Object.fromEntries(
+    Object.entries(config || {}).map(([key, value]) => [key, decodeCheckinConfigValue(value)]),
+  );
+}
+
+function parseCheckinSnapshot(result, capabilitiesKnown = true) {
+  const userAuth = result?.data?.userAuth || {};
+  return {
+    reservation: userAuth.reserve?.reserve || null,
+    qrUrl: userAuth.reserve?.qrUrl || '',
+    weixiao: userAuth.reserve?.weixiao || {},
+    config: decodeCheckinConfig(userAuth.config),
+    capabilitiesKnown,
+  };
+}
+
+async function queryCheckinSnapshot(credentials) {
+  let snapshot;
+  try {
+    snapshot = parseCheckinSnapshot(
+      await graphqlWithTimeout(
+        checkinStatusPayload(),
+        CHECKIN_INITIAL_QUERY_TIMEOUT_MS,
+        credentials,
+      ),
+    );
+  } catch (error) {
+    const schemaMismatch = /Cannot query field|Unknown field|getSchConfig|qrUrl/i.test(error.message || '');
+    if (!schemaMismatch) throw error;
+    log('学校接口未返回签到能力配置，已降级为只查询当前预约', 'warn');
+    snapshot = parseCheckinSnapshot(
+      await graphqlWithTimeout(
+        checkinReservationPayload(),
+        CHECKIN_INITIAL_QUERY_TIMEOUT_MS,
+        credentials,
+      ),
+      false,
+    );
+  }
+  updateCheckinSummary(snapshot);
+  return snapshot;
+}
+
+function updateCheckinSummary(snapshot) {
+  const reservation = snapshot?.reservation;
+  if (!reservation) {
+    state.checkinSummary = '无当前预约';
+    updateSummary();
+    return;
+  }
+
+  const room = reservation.lib_name || `场馆 ${reservation.lib_id || '-'}`;
+  const seat = reservation.seat_name ? ` ${reservation.seat_name} 号` : '';
+  const status = isReservationCheckedIn(reservation) ? '已签到' : '待签到';
+  state.checkinSummary = `${status} · ${room}${seat}`;
+  updateSummary();
+}
+
+function isReservationCheckedIn(reservation) {
+  return Number(reservation?.status) === 2;
+}
+
+function checkinReservationKey(reservation) {
+  if (!reservation) return '';
+  const values = [reservation.lib_id, reservation.seat_key, reservation.date];
+  if (values.some((value) => value === null || value === undefined || String(value) === '')) return '';
+  return values.map((value) => String(value)).join('|');
+}
+
+function isSameCheckinReservation(expected, actual) {
+  const expectedKey = checkinReservationKey(expected);
+  return Boolean(expectedKey) && expectedKey === checkinReservationKey(actual);
+}
+
+function safeCheckinUrl(value) {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  try {
+    const url = new URL(value, OFFICIAL_WEB_URL);
+    const localHttp =
+      url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+    if ((url.protocol !== 'https:' && !localHttp) || url.username || url.password) return '';
+    return url.href;
+  } catch {
+    return '';
+  }
+}
+
+function getPendingCheckinAttempt(reservation) {
+  const attempt = state.checkinAttempt;
+  const reservationKey = checkinReservationKey(reservation);
+  if (!attempt || !reservationKey || attempt.reservationKey !== reservationKey) return null;
+  if (!['pending', 'unknown', 'action-required'].includes(attempt.status)) {
+    state.checkinAttempt = null;
+    return null;
+  }
+  return attempt;
+}
+
+function checkinMutationValue(result, fieldName) {
+  return result?.data?.userAuth?.reserve?.[fieldName];
+}
+
+function assertCheckinAccepted(result, fieldName) {
+  const value = checkinMutationValue(result, fieldName);
+  if (value === false || value === null || value === undefined) {
+    const error = new Error('签到接口没有返回成功结果');
+    error.checkinRejected = true;
+    throw error;
+  }
+  if (typeof value === 'string' && /失败|无效|错误|过期|不支持/i.test(value)) {
+    const error = new Error(value);
+    error.checkinRejected = true;
+    throw error;
+  }
+}
+
+function describeCheckinRequirement(snapshot) {
+  if (!snapshot?.capabilitiesKnown) {
+    return {
+      kind: 'unknown',
+      summary: '能力未知',
+      message: '已查到当前预约，但学校接口没有返回签到能力配置；请在官方签到页确认，或粘贴已扫描的场馆/应急码后提交。',
+    };
+  }
+
+  const config = snapshot?.config || {};
+  if (config.forbidQrValid) {
+    return {
+      kind: 'forbidden',
+      summary: '当前不可签到',
+      message:
+        typeof config.forbidQrValid === 'string'
+          ? config.forbidQrValid
+          : '学校当前签到通道暂未开放。',
+    };
+  }
+
+  if (config.notSign) {
+    return {
+      kind: 'auto',
+      summary: '支持一键签到',
+      message: '学校已开放设备异常时的一键签到通道。',
+    };
+  }
+
+  if (snapshot?.weixiao?.isOpen) {
+    const actionUrl = safeCheckinUrl(snapshot.weixiao.url);
+    return {
+      kind: 'weixiao',
+      summary: '学校专属入口',
+      actions: actionUrl ? [{ label: '打开学校专属签到入口', url: actionUrl }] : [],
+      message: actionUrl
+        ? '学校使用专属签到入口，请通过下方已校验的官方返回地址继续。'
+        : '学校使用专属签到入口，但接口返回的地址格式无效，请从官方签到页进入。',
+    };
+  }
+
+  const doorOpen = Boolean(config.doorSignOpen);
+  const doorUrl = doorOpen ? safeCheckinUrl(config.doorSignURL) : '';
+  const qrHelpUrl = safeCheckinUrl(snapshot?.qrUrl);
+  const details = [];
+  const actions = [];
+  if (doorOpen) {
+    details.push(doorUrl ? '学校同时开放闸机签到说明' : '学校同时开放闸机签到');
+    if (doorUrl) actions.push({ label: '打开闸机签到说明', url: doorUrl });
+  }
+  if (qrHelpUrl) {
+    details.push('学校提供二维码签到说明');
+    actions.push({ label: '打开二维码签到说明', url: qrHelpUrl });
+  }
+  return {
+    kind: 'terminal',
+    summary: '需现场扫码',
+    actions,
+    message: `当前预约需由馆内扫码机扫描官方手机端持续刷新的个人动态码；也可粘贴手机扫描到的场馆/应急码。${
+      details.length ? ` ${details.join('；')}` : ''
+    }`,
+  };
+}
+
+async function verifyDispatchedCheckin(expectedReservation, dispatchedAt, credentials, signal) {
+  let latestSnapshot = { reservation: expectedReservation };
+  let lastError = null;
+
+  for (const targetMs of CHECKIN_VERIFY_AT_MS) {
+    if (signal?.aborted) return { verified: false, snapshot: latestSnapshot, lastError, aborted: true };
+    const delay = Math.max(0, targetMs - (Date.now() - dispatchedAt));
+    if (delay) {
+      try {
+        await waitWithSignal(delay, signal);
+      } catch (error) {
+        if (signal?.aborted || error.name === 'AbortError') {
+          return { verified: false, snapshot: latestSnapshot, lastError, aborted: true };
+        }
+        throw error;
+      }
+    }
+
+    try {
+      const snapshot = parseCheckinSnapshot(
+        await graphqlWithTimeout(checkinReservationPayload(), CHECKIN_STATUS_QUERY_TIMEOUT_MS, {
+          ...credentials,
+          signal,
+        }),
+        false,
+      );
+      if (!isSameCheckinReservation(expectedReservation, snapshot.reservation)) {
+        log('签到复核返回的不是刚才那条预约，已忽略该结果', 'warn');
+        continue;
+      }
+      latestSnapshot = snapshot;
+      updateCheckinSummary(snapshot);
+      if (isReservationCheckedIn(snapshot.reservation)) {
+        return { verified: true, snapshot, lastError: null };
+      }
+    } catch (error) {
+      if (signal?.aborted || error.name === 'AbortError') {
+        return { verified: false, snapshot: latestSnapshot, lastError, aborted: true };
+      }
+      lastError = error;
+      log(`签到状态复核暂未完成：${error.message}`, 'warn');
+    }
+  }
+
+  return { verified: false, snapshot: latestSnapshot, lastError };
+}
+
+function setResultDialogState(kind) {
+  const pending = kind !== 'success';
+  els.successDialog.classList.toggle('is-pending', pending);
+  els.successMark.textContent = kind === 'success' ? '✓' : kind === 'pending' ? '?' : '!';
+}
+
+function renderCheckinActionLinks(actions = []) {
+  els.checkinActionLinks.replaceChildren();
+  actions.forEach((action) => {
+    const url = safeCheckinUrl(action?.url);
+    if (!url) return;
+    const link = document.createElement('a');
+    link.className = 'checkin-route-link';
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = action.label || '打开官方签到入口';
+    els.checkinActionLinks.appendChild(link);
+  });
+  els.checkinActionLinks.hidden = !els.checkinActionLinks.childElementCount;
+}
+
+function setCheckinRetryVisible(visible) {
+  els.resetCheckinAttemptBtn.hidden = !visible;
+}
+
+async function showRemoteCheckinOutcome(snapshot, method, verified) {
+  const reservation = snapshot?.reservation || {};
+  const room = reservation.lib_name || `场馆 ${reservation.lib_id || '-'}`;
+  const seat = reservation.seat_name ? `${reservation.seat_name} 号` : '未知座位';
+  const resultText = verified ? '到馆签到成功' : '签到结果待确认';
+  state.checkinSummary = `${verified ? '已签到' : '待确认'} · ${room} ${seat}`;
+  updateSummary();
+  document.title = verified ? '[已签到] gotolibray' : '[签到待确认] gotolibray';
+  els.countdown.textContent = verified ? 'DONE' : 'CHECK';
+  els.modeText.textContent = resultText;
+  els.stateText.textContent = verified
+    ? `${room} · ${seat} · ${method}`
+    : `${room} · ${seat} · ${method}；请求只提交了一次，请稍后从官方页面复核`;
+  els.monitorPanel.classList.remove('is-running');
+  els.monitorPanel.classList.toggle('is-success', verified);
+  els.successTitle.textContent = resultText;
+  els.successText.textContent = verified
+    ? `${room} · ${seat}`
+    : `${room} · ${seat}；为避免重复签到，同一预约会保持锁定，复核后可在配置页手动解锁`;
+  setResultDialogState(verified ? 'success' : 'pending');
+  renderCheckinActionLinks();
+  setCheckinRetryVisible(!verified);
+  log(`${resultText}：${room} ${seat}（${method}）`, verified ? 'success' : 'warn');
+  if (verified) playBeep();
+  if (typeof els.successDialog.showModal === 'function') els.successDialog.showModal();
+  void sendNtfy(`${resultText}：${room} ${seat}`);
+}
+
+async function showRemoteCheckinError(snapshot, method, error, outcomeUnknown) {
+  const reservation = snapshot?.reservation || {};
+  const room = reservation.lib_name || `场馆 ${reservation.lib_id || '-'}`;
+  const seat = reservation.seat_name ? `${reservation.seat_name} 号` : '未知座位';
+  const title = outcomeUnknown ? '签到结果待确认' : '签到未通过';
+  const detail = outcomeUnknown
+    ? `请求已经发出，但暂未确认最终状态：${error.message}`
+    : error.message || '学校签到接口未接受本次请求';
+  state.checkinSummary = `${outcomeUnknown ? '待确认' : '未通过'} · ${room} ${seat}`;
+  updateSummary();
+  els.countdown.textContent = outcomeUnknown ? 'CHECK' : 'FAIL';
+  els.modeText.textContent = title;
+  els.stateText.textContent = detail;
+  els.monitorPanel.classList.remove('is-running', 'is-success');
+  els.successTitle.textContent = title;
+  els.successText.textContent = outcomeUnknown
+    ? `${room} · ${seat}；请求没有自动重试，请稍后从官方页面复核`
+    : `${room} · ${seat}；${detail}`;
+  setResultDialogState(outcomeUnknown ? 'pending' : 'error');
+  renderCheckinActionLinks();
+  setCheckinRetryVisible(outcomeUnknown);
+  log(`${title}：${detail}（${method}）`, outcomeUnknown ? 'warn' : 'error');
+  if (typeof els.successDialog.showModal === 'function') els.successDialog.showModal();
+  if (outcomeUnknown) void sendNtfy(`${title}：${room} ${seat}`);
+}
+
+function showCheckinRequirement(requirement) {
+  state.checkinSummary = requirement.summary;
+  updateSummary();
+  els.countdown.textContent = requirement.kind === 'weixiao' ? 'OPEN' : 'SCAN';
+  els.modeText.textContent = requirement.kind === 'weixiao' ? '学校专属签到入口' : '需要其他签到通道';
+  els.stateText.textContent = requirement.message;
+  els.monitorPanel.classList.remove('is-running', 'is-success');
+  renderCheckinActionLinks(requirement.actions);
+  setCheckinRetryVisible(false);
+  log(requirement.message, requirement.kind === 'forbidden' ? 'error' : 'warn');
+}
+
+async function remoteCheckin({ useEmergencyCode = false } = {}) {
+  if (state.running) {
+    log('请先停止当前捡漏或明日预约任务，再执行到馆签到', 'warn');
+    return;
+  }
+  if (state.checkinBusy) {
+    log('到馆签到正在检测或复核，请稍候', 'warn');
+    return;
+  }
+  if (!state.config.cookie) {
+    log('请先登录并保存 Cookie', 'warn');
+    switchTab('config');
+    return;
+  }
+
+  const emergencyCode = els.arrivalCodeInput.value;
+  if (useEmergencyCode && !emergencyCode.trim()) {
+    log('请先粘贴手机扫描得到的场馆/应急码原始内容', 'warn');
+    switchTab('config');
+    els.arrivalCodeInput.focus();
+    return;
+  }
+
+  const checkinCredentials = Object.freeze({
+    cookie: state.config.cookie,
+    authorization: state.config.authorization || '',
+  });
+  const hasEmergencyCode = useEmergencyCode;
+  const actionButton = useEmergencyCode ? els.submitArrivalCodeBtn : els.remoteCheckinBtn;
+  const originalRemoteText = els.remoteCheckinBtn.textContent;
+  const originalCodeText = els.submitArrivalCodeBtn.textContent;
+  const originalLeakDisabled = els.leakBtn.disabled;
+  const originalTomorrowDisabled = els.tomorrowBtn.disabled;
+  const originalStopDisabled = els.stopBtn.disabled;
+  const originalSaveDisabled = els.saveBtn.disabled;
+  const originalExchangeDisabled = els.exchangeCookieBtn.disabled;
+  const originalRefreshDisabled = els.refreshRoomsBtn.disabled;
+  const originalClearCookieDisabled = els.clearCookieBtn.disabled;
+  const originalLogoutDisabled = els.logoutBtn.disabled;
+  state.checkinBusy = true;
+  els.remoteCheckinBtn.disabled = true;
+  els.submitArrivalCodeBtn.disabled = true;
+  els.leakBtn.disabled = true;
+  els.tomorrowBtn.disabled = true;
+  els.stopBtn.disabled = true;
+  els.saveBtn.disabled = true;
+  els.exchangeCookieBtn.disabled = true;
+  els.refreshRoomsBtn.disabled = true;
+  els.clearCookieBtn.disabled = true;
+  els.logoutBtn.disabled = true;
+  actionButton.textContent = '检测中';
+  els.monitorPanel.setAttribute('aria-busy', 'true');
+  els.countdown.textContent = 'SIGN';
+  els.modeText.textContent = '到馆签到检测';
+  els.stateText.textContent = '正在查询当前预约和学校签到方式';
+  els.monitorPanel.classList.remove('is-success');
+  els.monitorPanel.classList.add('is-running');
+  renderCheckinActionLinks();
+
+  try {
+    const before = await queryCheckinSnapshot(checkinCredentials);
+    if (!before.reservation) {
+      state.checkinAttempt = null;
+      setCheckinRetryVisible(false);
+      throw new Error('当前没有可签到的预约');
+    }
+    if (isReservationCheckedIn(before.reservation)) {
+      state.checkinAttempt = null;
+      setCheckinRetryVisible(false);
+      els.countdown.textContent = 'DONE';
+      els.modeText.textContent = '已完成到馆签到';
+      els.stateText.textContent = `${before.reservation.lib_name || '当前场馆'} · ${before.reservation.seat_name || '当前座位'}`;
+      els.monitorPanel.classList.remove('is-running');
+      els.monitorPanel.classList.add('is-success');
+      log('当前预约已经处于学习中，无需重复签到', 'success');
+      return;
+    }
+
+    const currentReservationKey = checkinReservationKey(before.reservation);
+    if (
+      state.checkinAttempt &&
+      state.checkinAttempt.reservationKey !== currentReservationKey
+    ) {
+      state.checkinAttempt = null;
+      setCheckinRetryVisible(false);
+    }
+    const pendingAttempt = getPendingCheckinAttempt(before.reservation);
+    if (pendingAttempt) {
+      if (pendingAttempt.status === 'action-required' && pendingAttempt.actionUrl) {
+        state.checkinSummary = '需页面确认';
+        updateSummary();
+        els.countdown.textContent = 'OPEN';
+        els.modeText.textContent = '打开签到确认页';
+        els.stateText.textContent = '这条预约仍需在学校返回的页面继续确认';
+        els.monitorPanel.classList.remove('is-running', 'is-success');
+        setCheckinRetryVisible(false);
+        renderCheckinActionLinks([
+          { label: '继续官方签到确认', url: pendingAttempt.actionUrl },
+        ]);
+        switchTab('config');
+        log('已恢复学校返回的后续签到确认入口，没有重复提交请求', 'warn');
+        return;
+      }
+      if (pendingAttempt.status === 'unknown') {
+        state.checkinSummary = '结果待确认';
+        updateSummary();
+        els.countdown.textContent = 'CHECK';
+        els.modeText.textContent = '已阻止重复签到';
+        els.stateText.textContent = '请先在官方页复核；确认仍未签到后，可在配置页手动解锁重试';
+        els.monitorPanel.classList.remove('is-running', 'is-success');
+        setCheckinRetryVisible(true);
+        switchTab('config');
+        log('同一预约结果仍待确认，未再次发送签到 mutation', 'warn');
+        return;
+      }
+      state.checkinSummary = pendingAttempt.status === 'pending' ? '正在复核' : '结果待确认';
+      updateSummary();
+      els.countdown.textContent = 'WAIT';
+      els.modeText.textContent = '已阻止重复签到';
+      els.stateText.textContent = '同一预约正在提交或复核，请稍候';
+      els.monitorPanel.classList.remove('is-running', 'is-success');
+      log('已阻止同一预约的重复签到请求', 'warn');
+      return;
+    }
+
+    const requirement = describeCheckinRequirement(before);
+    const reservationKey = currentReservationKey;
+    if ((hasEmergencyCode || requirement.kind === 'auto') && !reservationKey) {
+      throw new Error('当前预约缺少场馆、座位或日期信息，未发送签到请求');
+    }
+    let method;
+    let fieldName;
+    let mutationPayload;
+    if (hasEmergencyCode) {
+      method = '场馆/应急码';
+      fieldName = 'offlineScan';
+      actionButton.textContent = '提交中';
+      els.stateText.textContent = '正在提交场馆/应急签到码';
+      mutationPayload = emergencyCheckinPayload(emergencyCode);
+    } else if (requirement.kind === 'auto') {
+      method = '学校一键签到';
+      fieldName = 'autoSign';
+      actionButton.textContent = '签到中';
+      els.stateText.textContent = '学校已开放一键签到，正在提交';
+      mutationPayload = autoCheckinPayload();
+    } else {
+      showCheckinRequirement(requirement);
+      if (requirement.kind !== 'forbidden') switchTab('config');
+      return;
+    }
+
+    const dispatchedAt = Date.now();
+    const checkinAttempt = {
+      reservationKey,
+      dispatchedAt,
+      method,
+      status: 'pending',
+    };
+    state.checkinAttempt = checkinAttempt;
+    state.checkinSummary = '正在复核';
+    setCheckinRetryVisible(false);
+    updateSummary();
+
+    const mutationController = new AbortController();
+    const mutationPromise = graphql(mutationPayload, {
+      ...checkinCredentials,
+      signal: mutationController.signal,
+    });
+    if (hasEmergencyCode) els.arrivalCodeInput.value = '';
+    const verificationController = new AbortController();
+    const verificationPromise = verifyDispatchedCheckin(
+      before.reservation,
+      dispatchedAt,
+      checkinCredentials,
+      verificationController.signal,
+    );
+    const mutationOutcomePromise = waitForCheckinMutation(mutationPromise, fieldName, mutationController);
+
+    actionButton.textContent = '复核中';
+    els.stateText.textContent = '请求仅提交一次，正在于 0.8 / 2 / 5 秒复核同一预约';
+    const mutationOutcome = await mutationOutcomePromise;
+    const mutationError = mutationOutcome.error;
+
+    if (mutationError && [4, 5].includes(Number(mutationError.remoteCode))) {
+      const actionUrl = safeCheckinUrl(mutationError.actionUrl || '');
+      if (actionUrl) {
+        verificationController.abort();
+        const interruptedVerification = await verificationPromise;
+        if (interruptedVerification.verified) {
+          checkinAttempt.status = 'verified';
+          await showRemoteCheckinOutcome(interruptedVerification.snapshot, method, true);
+          return;
+        }
+        checkinAttempt.status = 'action-required';
+        checkinAttempt.actionUrl = actionUrl;
+        setCheckinRetryVisible(false);
+        state.checkinSummary = '需页面确认';
+        updateSummary();
+        els.countdown.textContent = 'OPEN';
+        els.modeText.textContent = '打开签到确认页';
+        els.stateText.textContent = '学校要求在返回的页面继续确认，请使用下方已校验的官方地址';
+        els.monitorPanel.classList.remove('is-running', 'is-success');
+        renderCheckinActionLinks([{ label: '继续官方签到确认', url: actionUrl }]);
+        log('签到接口要求继续页面确认，已显示校验后的官方入口', 'warn');
+        switchTab('config');
+        return;
+      }
+      mutationError.message = `${mutationError.message}；接口返回的确认地址格式无效`;
+    }
+
+    const verification = await verificationPromise;
+    if (verification.verified) {
+      checkinAttempt.status = 'verified';
+      await showRemoteCheckinOutcome(verification.snapshot, method, true);
+      return;
+    }
+
+    if (mutationError) {
+      const outcomeUnknown =
+        !mutationOutcome.settled || !mutationError.checkinRejected;
+      if (outcomeUnknown) checkinAttempt.status = 'unknown';
+      else if (state.checkinAttempt === checkinAttempt) state.checkinAttempt = null;
+      await showRemoteCheckinError(verification.snapshot, method, mutationError, outcomeUnknown);
+      return;
+    }
+
+    checkinAttempt.status = 'unknown';
+    await showRemoteCheckinOutcome(verification.snapshot, method, false);
+  } catch (error) {
+    if (state.checkinSummary !== '无当前预约') state.checkinSummary = '签到检测失败';
+    updateSummary();
+    els.countdown.textContent = 'FAIL';
+    els.modeText.textContent = '到馆签到检测失败';
+    els.stateText.textContent = error.message || '签到请求失败';
+    els.monitorPanel.classList.remove('is-running', 'is-success');
+    log(`到馆签到检测失败：${error.message || '未知错误'}`, 'error');
+    if (/Cookie|登录|配置/.test(error.message || '')) switchTab('config');
+  } finally {
+    state.checkinBusy = false;
+    els.monitorPanel.setAttribute('aria-busy', 'false');
+    els.remoteCheckinBtn.disabled = false;
+    els.submitArrivalCodeBtn.disabled = false;
+    els.leakBtn.disabled = originalLeakDisabled;
+    els.tomorrowBtn.disabled = originalTomorrowDisabled;
+    els.stopBtn.disabled = originalStopDisabled;
+    els.saveBtn.disabled = originalSaveDisabled;
+    els.exchangeCookieBtn.disabled = originalExchangeDisabled;
+    els.refreshRoomsBtn.disabled = originalRefreshDisabled;
+    els.clearCookieBtn.disabled = originalClearCookieDisabled;
+    els.logoutBtn.disabled = originalLogoutDisabled;
+    els.remoteCheckinBtn.textContent = originalRemoteText;
+    els.submitArrivalCodeBtn.textContent = originalCodeText;
+  }
 }
 
 function getSeats(layoutData) {
@@ -575,6 +1283,10 @@ function getReserveMessage(result) {
 }
 
 async function refreshRooms() {
+  if (state.checkinBusy) {
+    log('请等待到馆签到复核完成后再刷新阅览室', 'warn');
+    return;
+  }
   if (!state.config.cookie) {
     log('请先登录获取 Cookie', 'warn');
     return;
@@ -771,10 +1483,11 @@ async function handleSuccess(seat, kind = 'leak', verification = null) {
   els.monitorPanel.classList.add('is-success');
   els.successTitle.textContent = isTomorrow ? '明日预约成功' : '抢到座位了';
   els.successText.textContent = `座位：${seatName}${verification?.day ? ` · ${verification.day}` : ''}`;
+  setResultDialogState('success');
   log(`${actionText}成功：${seatName}`, 'success');
   playBeep();
-  await sendNtfy(`${actionText}成功：${seatName}`);
   if (typeof els.successDialog.showModal === 'function') els.successDialog.showModal();
+  void sendNtfy(`${actionText}成功：${seatName}`);
 }
 
 function playBeep() {
@@ -797,14 +1510,22 @@ function playBeep() {
 }
 
 async function sendNtfy(message) {
-  if (!state.config.ntfy_topic) return;
+  const topic = state.config.ntfy_topic;
+  if (!topic) return;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), NTFY_TIMEOUT_MS);
   try {
-    await fetch(`https://ntfy.sh/${encodeURIComponent(state.config.ntfy_topic)}`, {
+    const response = await fetch(`https://ntfy.sh/${encodeURIComponent(topic)}`, {
       method: 'POST',
       body: message,
+      signal: controller.signal,
     });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
   } catch (error) {
-    log(`ntfy 推送失败：${error.message}`, 'warn');
+    const detail = error.name === 'AbortError' ? '请求超时' : error.message;
+    log(`ntfy 推送失败：${detail}`, 'warn');
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -1048,7 +1769,7 @@ async function runTomorrowReservation() {
           return;
         }
       }
-      await waitWithSignal((state.config.slow_interval || defaultConfig.slow_interval) * 1000, signal);
+      await waitWithSignal(getTomorrowPollDelay(), signal);
     }
   } catch (error) {
     if (error.name === 'AbortError' && !state.running) return;
@@ -1064,8 +1785,19 @@ async function runTomorrowReservation() {
   }
 }
 
+function getTomorrowPollDelay() {
+  // 明日接口采用保守轮询并加入轻微抖动，降低固定高频请求带来的风控与接口压力。
+  const base = clamp(Number(state.config.tomorrow_interval || defaultConfig.tomorrow_interval), 6, 30);
+  const jitter = 0.8 + Math.random() * 0.4;
+  return Math.max(5, Math.round(base * jitter * 1000));
+}
+
 async function startTomorrowReservation() {
   if (state.running) return;
+  if (state.checkinBusy) {
+    log('请等待到馆签到检测完成后再启动明日预约', 'warn');
+    return;
+  }
   try {
     validateConfig();
     state.success = false;
@@ -1127,6 +1859,10 @@ function ensureWorkerTimer() {
 
 async function startPolling() {
   if (state.running) return;
+  if (state.checkinBusy) {
+    log('请等待到馆签到检测完成后再启动捡漏', 'warn');
+    return;
+  }
   try {
     validateConfig();
     state.success = false;
@@ -1187,6 +1923,10 @@ async function testHealth() {
 }
 
 async function exchangeCookie() {
+  if (state.checkinBusy) {
+    log('请等待到馆签到复核完成后再更新登录信息', 'warn');
+    return;
+  }
   const url = els.authUrlInput.value.trim();
   if (!url) {
     log('请先粘贴授权链接', 'warn');
@@ -1232,6 +1972,10 @@ function bindEvents() {
 
   els.configForm.addEventListener('submit', (event) => {
     event.preventDefault();
+    if (state.checkinBusy) {
+      log('请等待到馆签到复核完成后再保存配置', 'warn');
+      return;
+    }
     state.config = collectForm();
     saveConfig();
     renderRooms();
@@ -1255,6 +1999,8 @@ function bindEvents() {
 
   els.leakBtn.addEventListener('click', () => startPolling());
   els.tomorrowBtn.addEventListener('click', () => startTomorrowReservation());
+  els.remoteCheckinBtn.addEventListener('click', () => remoteCheckin());
+  els.submitArrivalCodeBtn.addEventListener('click', () => remoteCheckin({ useEmergencyCode: true }));
   els.checkinBtn.addEventListener('click', checkin);
   els.stopBtn.addEventListener('click', () => stopPolling());
   els.clearLogsBtn.addEventListener('click', () => {
@@ -1276,12 +2022,20 @@ function bindEvents() {
     }
   });
   els.logoutBtn.addEventListener('click', async () => {
+    if (state.checkinBusy) {
+      log('请等待到馆签到复核完成后再退出登录', 'warn');
+      return;
+    }
     stopPolling(false);
     await fetch('/api/auth/logout', { method: 'POST' });
     window.location.href = '/login.html';
   });
   els.exchangeCookieBtn.addEventListener('click', exchangeCookie);
   els.refreshRoomsBtn.addEventListener('click', () => {
+    if (state.checkinBusy) {
+      log('请等待到馆签到复核完成后再刷新阅览室', 'warn');
+      return;
+    }
     state.config = { ...state.config, ...collectForm() };
     saveConfig();
     refreshRooms();
@@ -1295,16 +2049,43 @@ function bindEvents() {
     }
   });
   els.clearCookieBtn.addEventListener('click', () => {
+    if (state.checkinBusy) {
+      log('请等待到馆签到复核完成后再清除登录信息', 'warn');
+      return;
+    }
     stopPolling(false);
     state.success = false;
     state.config.cookie = '';
     state.config.authorization = '';
     state.config.lib_id = '';
     state.config.rooms = [];
+    state.checkinSummary = '未检测';
+    state.checkinAttempt = null;
+    els.arrivalCodeInput.value = '';
+    renderCheckinActionLinks();
+    setCheckinRetryVisible(false);
     saveConfig();
     fillForm();
     updateSummary();
     log('已清除登录信息', 'warn');
+  });
+  els.resetCheckinAttemptBtn.addEventListener('click', () => {
+    if (state.checkinBusy) {
+      log('签到仍在复核中，请稍候', 'warn');
+      return;
+    }
+    if (state.checkinAttempt?.status !== 'unknown') {
+      setCheckinRetryVisible(false);
+      return;
+    }
+    state.checkinAttempt = null;
+    state.checkinSummary = '待重新检测';
+    setCheckinRetryVisible(false);
+    updateSummary();
+    els.countdown.textContent = 'READY';
+    els.modeText.textContent = '已允许重新签到';
+    els.stateText.textContent = '下次点击将重新检测并提交一次签到请求';
+    log('已按用户确认解除同一预约的待确认锁定', 'warn');
   });
   els.closeSuccessBtn.addEventListener('click', () => els.successDialog.close());
   document.addEventListener('visibilitychange', restoreWakeLock);
