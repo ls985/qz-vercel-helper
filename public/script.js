@@ -486,41 +486,46 @@ function officialCheckinIndexPayload() {
   };
 }
 
-function singleCheckinConfigPayload(operationName, fieldName) {
+function singleCheckinConfigPayload(operationName, fieldName, extra = false) {
+  const extraArgument = extra ? ', extra: true' : '';
   return {
     operationName,
-    query: `query ${operationName} {\n userAuth {\n config: user {\n value: getSchConfig(fields: "${fieldName}")\n }\n }\n}`,
+    query: `query ${operationName} {\n userAuth {\n config: user {\n value: getSchConfig(fields: "${fieldName}"${extraArgument})\n }\n }\n}`,
     variables: {},
   };
 }
 
 async function probeCheckinConfigFields(credentials) {
   const definitions = [
-    ['probeNotSign', 'reserve.notSign', 'notSign'],
-    ['probeDoorSignOpen', 'adm.doorSignOpen', 'doorSignOpen'],
-    ['probeDoorSignURL', 'adm.doorSignURL', 'doorSignURL'],
+    ['probeForbidQrValid', 'forbidQrValid', 'forbidQrValid', true],
+    ['probeNotSign', 'reserve.notSign', 'notSign', false],
+    ['probeBlueSignOpen', 'adm.blueSignOpen', 'blueSignOpen', false],
+    ['probeDoorSignOpen', 'adm.doorSignOpen', 'doorSignOpen', false],
+    ['probeDoorSignURL', 'adm.doorSignURL', 'doorSignURL', false],
   ];
   const config = {};
+  const knownFields = [];
   const rejected = [];
 
-  for (const [operationName, fieldName, key] of definitions) {
+  for (const [operationName, fieldName, key, extra] of definitions) {
     try {
       const result = await graphqlWithTimeout(
-        singleCheckinConfigPayload(operationName, fieldName),
+        singleCheckinConfigPayload(operationName, fieldName, extra),
         CHECKIN_INITIAL_QUERY_TIMEOUT_MS,
         credentials,
       );
       config[key] = decodeCheckinConfigValue(result?.data?.userAuth?.config?.value);
+      knownFields.push(key);
     } catch (error) {
       rejected.push(`${key}: ${error.message || '读取失败'}`);
     }
   }
 
-  if (!Object.keys(config).length) {
-    throw new Error(`学校拒绝读取全部签到配置字段：${rejected.join('；')}`);
+  if (rejected.length) {
+    const prefix = knownFields.length ? '部分签到配置字段读取失败' : '学校拒绝读取全部签到配置字段';
+    log(`${prefix}：${rejected.join('；')}`, 'warn');
   }
-  if (rejected.length) log(`部分签到配置字段读取失败：${rejected.join('；')}`, 'warn');
-  return config;
+  return { config, knownFields, rejected };
 }
 
 function autoCheckinPayload() {
@@ -699,11 +704,16 @@ function decodeCheckinConfig(config) {
 
 function parseCheckinSnapshot(result, capabilitiesKnown = true) {
   const userAuth = result?.data?.userAuth || {};
+  const reserveRoot = userAuth.reserve || {};
+  const configRoot = userAuth.config || {};
   return {
-    reservation: userAuth.reserve?.reserve || null,
-    qrUrl: userAuth.reserve?.qrUrl || '',
-    weixiao: userAuth.reserve?.weixiao || {},
-    config: decodeCheckinConfig(userAuth.config),
+    reservation: reserveRoot.reserve || null,
+    qrUrl: reserveRoot.qrUrl || '',
+    qrUrlKnown: Object.prototype.hasOwnProperty.call(reserveRoot, 'qrUrl'),
+    weixiao: reserveRoot.weixiao || {},
+    weixiaoKnown: Object.prototype.hasOwnProperty.call(reserveRoot, 'weixiao'),
+    config: decodeCheckinConfig(configRoot),
+    configKnownFields: Object.keys(configRoot),
     capabilitiesKnown,
   };
 }
@@ -864,30 +874,56 @@ function describeCheckinRequirement(snapshot) {
 
 function describeCheckinChannels(snapshot) {
   const config = snapshot?.config || {};
+  const knownFields = new Set(snapshot?.configKnownFields || []);
+  const configKnown = (field) => knownFields.has(field);
   const actions = [];
   const details = [];
-  const doorOpen = Boolean(config.doorSignOpen);
+  const doorKnown = configKnown('doorSignOpen');
+  const doorOpen = doorKnown && Boolean(config.doorSignOpen);
   const doorUrl = doorOpen ? safeCheckinUrl(config.doorSignURL) : '';
   const weixiaoOpen = Boolean(snapshot?.weixiao?.isOpen);
   const weixiaoUrl = weixiaoOpen ? safeCheckinUrl(snapshot.weixiao.url) : '';
   const qrHelpUrl = safeCheckinUrl(snapshot?.qrUrl);
 
-  details.push(config.notSign ? '一键签到：开放' : '一键签到：未开放');
   details.push(
-    doorOpen
+    configKnown('notSign') ? (config.notSign ? '一键签到：开放' : '一键签到：未开放') : '一键签到：未知',
+  );
+  details.push(
+    !doorKnown
+      ? '闸机签到：未知'
+      : doorOpen
       ? `闸机签到：开放${doorUrl ? '（有官方入口）' : '（需到馆使用闸机）'}`
       : '闸机签到：配置未开放',
   );
-  details.push(weixiaoOpen ? '学校专属入口：开放' : '学校专属入口：未开放');
-  if (config.forbidQrValid) details.push(`学校限制：${String(config.forbidQrValid)}`);
+  details.push(
+    snapshot?.weixiaoKnown
+      ? weixiaoOpen
+        ? '学校专属入口：开放'
+        : '学校专属入口：未开放'
+      : '学校专属入口：未知',
+  );
+  if (configKnown('forbidQrValid') && config.forbidQrValid) {
+    details.push(`学校限制：${String(config.forbidQrValid)}`);
+  }
 
   if (doorUrl) actions.push({ label: '打开学校闸机签到入口', url: doorUrl });
   if (weixiaoUrl) actions.push({ label: '打开学校专属签到入口', url: weixiaoUrl });
   if (qrHelpUrl) actions.push({ label: '打开二维码签到说明', url: qrHelpUrl });
 
+  const capabilityKnown =
+    knownFields.size > 0 || Boolean(snapshot?.weixiaoKnown) || Boolean(snapshot?.qrUrlKnown);
+  const notSignOpen = configKnown('notSign') && Boolean(config.notSign);
+
   return {
     doorOpen,
-    summary: doorOpen ? '开放闸机签到' : config.notSign ? '支持一键签到' : '需现场签到',
+    capabilityKnown,
+    summary: doorOpen
+      ? '开放闸机签到'
+      : notSignOpen
+        ? '支持一键签到'
+        : capabilityKnown
+          ? '需现场签到'
+          : '签到能力未知',
     message: `只读检测结果：${details.join('；')}`,
     actions,
   };
@@ -943,29 +979,39 @@ async function inspectCheckinChannels() {
       } catch (officialError) {
         if (!/access denied/i.test(officialError.message || '')) throw officialError;
         log('官方组合查询仍被拒绝，正在逐项读取一键和闸机配置', 'warn');
-        const reservationSnapshot = parseCheckinSnapshot(
-          await graphqlWithTimeout(
-            checkinReservationPayload(),
-            CHECKIN_INITIAL_QUERY_TIMEOUT_MS,
-            credentials,
-          ),
-          false,
-        );
+        const configProbe = await probeCheckinConfigFields(credentials);
+        let reservationSnapshot = parseCheckinSnapshot(null, false);
+        try {
+          reservationSnapshot = parseCheckinSnapshot(
+            await graphqlWithTimeout(
+              checkinReservationPayload(),
+              CHECKIN_INITIAL_QUERY_TIMEOUT_MS,
+              credentials,
+            ),
+            false,
+          );
+        } catch (reservationError) {
+          log(`当前预约读取受限，但不影响配置字段检测：${reservationError.message || '读取失败'}`, 'warn');
+        }
         snapshot = {
           ...reservationSnapshot,
-          config: await probeCheckinConfigFields(credentials),
-          capabilitiesKnown: true,
+          config: configProbe.config,
+          configKnownFields: configProbe.knownFields,
+          capabilitiesKnown: configProbe.knownFields.length > 0,
         };
       }
-      updateCheckinSummary(snapshot);
     }
-    if (!snapshot.reservation) throw new Error('当前没有可检测签到方式的预约');
+    updateCheckinSummary(snapshot);
     const result = describeCheckinChannels(snapshot);
     state.checkinSummary = result.summary;
     updateSummary();
     renderCheckinActionLinks(result.actions);
-    els.countdown.textContent = result.doorOpen ? 'GATE' : 'INFO';
-    els.modeText.textContent = result.doorOpen ? '学校开放闸机签到' : '学校签到方式检测完成';
+    els.countdown.textContent = result.doorOpen ? 'GATE' : result.capabilityKnown ? 'INFO' : '?';
+    els.modeText.textContent = result.doorOpen
+      ? '学校开放闸机签到'
+      : result.capabilityKnown
+        ? '学校签到方式检测完成'
+        : '学校签到能力未知';
     els.stateText.textContent = result.message;
     els.monitorPanel.classList.remove('is-running');
     els.monitorPanel.classList.toggle('is-success', result.doorOpen);
