@@ -474,6 +474,18 @@ function checkinReservationPayload() {
   };
 }
 
+function officialCheckinIndexPayload() {
+  return {
+    operationName: 'index',
+    query:
+      'query index($url: String!, $pos: String!, $param: [hash]) {\n userAuth {\n reserve {\n reserve {\n token\n status\n user_id\n user_nick\n sch_id\n sch_name\n lib_id\n lib_name\n lib_floor\n seat_name\n }\n qrUrl\n weixiao {\n isOpen\n url\n pic\n }\n }\n webSocket {\n url\n qrType\n protocol\n }\n config: user {\n notSign: getSchConfig(fields: "reserve.notSign")\n blueSignOpen: getSchConfig(fields: "adm.blueSignOpen")\n doorSignOpen: getSchConfig(fields: "adm.doorSignOpen")\n doorSignURL: getSchConfig(fields: "adm.doorSignURL")\n forbidQrValid: getSchConfig(fields: "forbidQrValid", extra: true)\n }\n }\n wechatJSSDK(url: $url) {\n appId\n timestamp\n nonceStr\n signature\n }\n ad(pos: $pos, param: $param) {\n name\n pic\n url\n }\n}',
+    variables: {
+      url: OFFICIAL_WEB_URL,
+      pos: '新版-签到页面-中间',
+    },
+  };
+}
+
 function autoCheckinPayload() {
   return {
     operationName: 'autoSign',
@@ -873,10 +885,25 @@ async function inspectCheckinChannels() {
   els.monitorPanel.classList.add('is-running');
 
   try {
-    const snapshot = await queryCheckinSnapshot({
+    const credentials = {
       cookie: state.config.cookie,
       authorization: state.config.authorization || '',
-    });
+    };
+    let snapshot;
+    try {
+      snapshot = await queryCheckinSnapshot(credentials);
+    } catch (error) {
+      if (!/access denied/i.test(error.message || '')) throw error;
+      log('学校拒绝了精简查询，正在改用官方签到页原样查询', 'warn');
+      snapshot = parseCheckinSnapshot(
+        await graphqlWithTimeout(
+          officialCheckinIndexPayload(),
+          CHECKIN_INITIAL_QUERY_TIMEOUT_MS,
+          credentials,
+        ),
+      );
+      updateCheckinSummary(snapshot);
+    }
     if (!snapshot.reservation) throw new Error('当前没有可检测签到方式的预约');
     const result = describeCheckinChannels(snapshot);
     state.checkinSummary = result.summary;
