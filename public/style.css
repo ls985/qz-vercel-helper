@@ -125,6 +125,9 @@ label span, .label-title { display: block; margin-bottom: 7px; color: var(--soft
 .tomorrow-settings, .checkin-settings { display: grid; gap: 13px; border: 1px solid rgba(138, 164, 255, 0.24); border-radius: var(--radius); padding: 14px; background: linear-gradient(145deg, rgba(138, 164, 255, 0.08), rgba(138, 164, 255, 0.025)); }
 .checkin-settings { border-color: rgba(197, 149, 255, 0.24); background: linear-gradient(145deg, rgba(197, 149, 255, 0.07), rgba(197, 149, 255, 0.02)); }
 .settings-note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.school-checkin-guide { display: grid; gap: 8px; border: 1px solid rgba(110, 231, 183, 0.22); border-radius: var(--radius); padding: 12px; background: rgba(110, 231, 183, 0.055); }
+.school-checkin-guide strong { color: var(--mint); font-size: 13px; }
+.school-checkin-guide p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.65; }
 .arrival-code-button { border-color: rgba(197, 149, 255, 0.34); background: rgba(197, 149, 255, 0.12); color: #dfc7ff; font-weight: 750; }
 .arrival-code-button:hover { border-color: rgba(197, 149, 255, 0.56); background: rgba(197, 149, 255, 0.2); color: #f0e4ff; }
 .checkin-action-links { display: flex; flex-wrap: wrap; gap: 8px; }

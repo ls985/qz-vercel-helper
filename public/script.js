@@ -876,6 +876,9 @@ function describeCheckinChannels(snapshot) {
   const config = snapshot?.config || {};
   const knownFields = new Set(snapshot?.configKnownFields || []);
   const configKnown = (field) => knownFields.has(field);
+  const probeRejected = snapshot?.probeRejected || [];
+  const accessRestricted =
+    probeRejected.length > 0 && probeRejected.every((message) => /access denied/i.test(message));
   const actions = [];
   const details = [];
   const doorKnown = configKnown('doorSignOpen');
@@ -917,14 +920,19 @@ function describeCheckinChannels(snapshot) {
   return {
     doorOpen,
     capabilityKnown,
-    summary: doorOpen
+    accessRestricted,
+    summary: accessRestricted && !capabilityKnown
+      ? '请重新登录后检测'
+      : doorOpen
       ? '开放闸机签到'
       : notSignOpen
         ? '支持一键签到'
         : capabilityKnown
           ? '需现场签到'
           : '签到能力未知',
-    message: `只读检测结果：${details.join('；')}`,
+    message: accessRestricted && !capabilityKnown
+      ? `只读检测受限：当前登录已失效或学校限制读取配置，请重新登录后复测。${details.join('；')}`
+      : `只读检测结果：${details.join('；')}`,
     actions,
   };
 }
@@ -981,6 +989,7 @@ async function inspectCheckinChannels() {
         log('官方组合查询仍被拒绝，正在逐项读取一键和闸机配置', 'warn');
         const configProbe = await probeCheckinConfigFields(credentials);
         let reservationSnapshot = parseCheckinSnapshot(null, false);
+        let reservationReadRestricted = false;
         try {
           reservationSnapshot = parseCheckinSnapshot(
             await graphqlWithTimeout(
@@ -991,12 +1000,15 @@ async function inspectCheckinChannels() {
             false,
           );
         } catch (reservationError) {
+          reservationReadRestricted = /access denied/i.test(reservationError.message || '');
           log(`当前预约读取受限，但不影响配置字段检测：${reservationError.message || '读取失败'}`, 'warn');
         }
         snapshot = {
           ...reservationSnapshot,
           config: configProbe.config,
           configKnownFields: configProbe.knownFields,
+          probeRejected: configProbe.rejected,
+          reservationReadRestricted,
           capabilitiesKnown: configProbe.knownFields.length > 0,
         };
       }
@@ -1006,9 +1018,17 @@ async function inspectCheckinChannels() {
     state.checkinSummary = result.summary;
     updateSummary();
     renderCheckinActionLinks(result.actions);
-    els.countdown.textContent = result.doorOpen ? 'GATE' : result.capabilityKnown ? 'INFO' : '?';
+    els.countdown.textContent = result.doorOpen
+      ? 'GATE'
+      : result.accessRestricted
+        ? 'LOGIN'
+        : result.capabilityKnown
+          ? 'INFO'
+          : '?';
     els.modeText.textContent = result.doorOpen
       ? '学校开放闸机签到'
+      : result.accessRestricted
+        ? '请重新登录后检测'
       : result.capabilityKnown
         ? '学校签到方式检测完成'
         : '学校签到能力未知';

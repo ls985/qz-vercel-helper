@@ -118,6 +118,14 @@
               <div><span class="settings-section-icon" aria-hidden="true">签</span><strong id="checkinSettingsTitle">到馆签到</strong></div>
               <small>按学校配置识别通道</small>
             </header>
+            <aside class="school-checkin-guide">
+              <strong>江苏大学现场刷脸方案</strong>
+              <p>先在江苏大学企业微信完成“人脸门禁 → 人脸采集”绑定；预约成功后从图书馆闸机刷脸入馆，并在官方预约页确认是否自动签到。人脸绑定属于校门禁，图书馆官网当前仍以闸机入馆自动签到为准。</p>
+              <div class="checkin-action-links">
+                <a class="checkin-route-link" href="https://yjsy.ujs.edu.cn/__local/3/2B/32/25B213FE0572BAD934EF0FB40CB_37C4DCA9_8E5AB.pdf" target="_blank" rel="noopener noreferrer">官方人脸门禁绑定指南</a>
+                <a class="checkin-route-link" href="https://lib.ujs.edu.cn/fw/zwyy.htm" target="_blank" rel="noopener noreferrer">官方座位预约说明</a>
+              </div>
+            </aside>
             <button class="arrival-code-button" id="inspectCheckinBtn" type="button">仅检测学校签到方式（不提交）</button>
             <label><span>场馆 / 应急签到码（独立通道）</span><textarea id="arrivalCodeInput" rows="2" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-describedby="arrivalCodeHelp" placeholder="仅用于手机扫描场馆码或应急码的学校"></textarea><small id="arrivalCodeHelp">扫码后原样粘贴；本站不写入本地配置，仅在本页临时保留，请求发出后立即清空。</small></label>
             <button class="arrival-code-button" id="submitArrivalCodeBtn" type="button">提交场馆 / 应急码</button>
@@ -152,6 +160,6 @@
       <div class="success-mark" id="successMark" aria-hidden="true">✓</div><h2 id="successTitle">抢到座位了</h2><p id="successText">请尽快确认预约状态。</p>
       <button class="primary" id="closeSuccessBtn" type="button">知道了</button>
     </dialog>
-    <script src="./script.js?v=20260720-5"></script>
+    <script src="./script.js?v=20260720-6"></script>
   </body>
 </html>
