@@ -10,3 +10,15 @@ build/
 
 .vercel
 .worktrees/
+.workbuddy/
+output/
+design/
+
+# Local Android toolchain and generated packages
+.android-tools/
+.gradle-home/
+android/.gradle/
+android/local.properties
+*.apk
+*.aab
+*.class

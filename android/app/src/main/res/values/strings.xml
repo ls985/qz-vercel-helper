@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">我去图书馆 · 本机版</string>
+    <string name="app_subtitle">本机直连 · 不需要服务地址</string>
+    <string name="brand_icon">图书馆</string>
+    <string name="wechat_connect">微信登录</string>
+    <string name="wechat_login_help">复制链接后在微信内完成登录，再复制当前页面地址粘贴回来。</string>
+    <string name="copy_login_link">复制登录链接</string>
+    <string name="callback_link">微信回调链接</string>
+    <string name="callback_link_hint">在微信登录后，粘贴当前页面地址</string>
+    <string name="parse_login">解析登录并获取阅览室</string>
+    <string name="clear_login">清除登录</string>
+    <string name="seat_config">预约配置</string>
+    <string name="wechat_login">微信登录</string>
+    <string name="ready">准备就绪</string>
+    <string name="ready_detail">完成登录和座位配置后即可启动</string>
+    <string name="not_logged_in">尚未登录</string>
+    <string name="room">阅览室</string>
+    <string name="refresh">刷新</string>
+    <string name="select_seats">选择优先座位</string>
+    <string name="any_seat">未限制座位，将选择任意空位</string>
+    <string name="task_mode">任务模式</string>
+    <string name="realtime_mode">实时捡漏</string>
+    <string name="tomorrow_mode">明日预约</string>
+    <string name="start_time">开始监控时间</string>
+    <string name="default_start_time">20:00:00</string>
+    <string name="start_task">开始任务</string>
+    <string name="stop_task">停止</string>
+    <string name="run_logs">运行记录</string>
+    <string name="no_logs">暂无运行记录</string>
+    <string name="status_indicator">任务状态指示灯</string>
+    <string name="relogin_action">重新微信登录</string>
+    <string name="copy_logs">复制</string>
+    <string name="tomorrow_hint">到点后自动进入排队通道，以低频监控明日空位并串行尝试，成功或触发风控会自动停止。</string>
+    <string name="copy_logs_done">运行记录已复制</string>
+    <string name="seat_summary_format">优先座位：%1$s</string>
+</resources>
