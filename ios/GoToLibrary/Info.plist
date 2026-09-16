@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>野原家书屋</string>
+	<key>CFBundleName</key>
+	<string>GoToLibrary</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.8.6</string>
+	<key>CFBundleVersion</key>
+	<string>37</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>zh_CN</string>
+	<key>CFBundleAllowMixedLocalizations</key>
+	<true/>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+
+	<key>UILaunchScreen</key>
+	<dict/>
+
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+	</array>
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>arm64</string>
+	</array>
+
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+
+	<!-- 后台模式说明（plist 不允许 XML 注释，故用 _comment_ 前缀键承载说明文案）：
+	     此处刻意不声明任何 UIBackgroundModes。工程里没有实现 BGTaskScheduler 任务，
+	     也没有 performFetchWithCompletionHandler —— 声明了用不到的后台模式是常见的审核
+	     拒绝理由。iOS 不允许长期后台抢座，应用只能在"前台运行 + 屏幕常亮"下工作：
+	     ReservationRunner 运行时置 isIdleTimerDisabled=true 保持常亮，并用
+	     beginBackgroundTask 争取约 30 秒额外后台时间；额度耗尽后任务被系统挂起，
+	     界面与日志如实显示"已挂起"。绝对不要为了骗后台时间加 audio / location / voip。
+	     若将来真的实现了后台刷新，必须同时补上 BGTaskSchedulerPermittedIdentifiers 与
+	     AppDelegate 里的任务注册，再回来加对应的 mode。 -->
+	<key>_comment_UIBackgroundModes</key>
+	<string>刻意不声明 UIBackgroundModes：没有实现 BGTaskScheduler / performFetch，声明用不到的后台模式会被审核拒绝。iOS 不支持长期后台抢座，应用靠前台运行 + 屏幕常亮工作。</string>
+
+	<!-- 需要显式声明要查询的 scheme，否则 canOpenURL 一律返回 false：
+	     cydia —— LicenseManager.isHostileEnvironment() 的越狱探测；
+	     fleamarket / taobao —— BuildConfig.openPaymentChannel() 探测闲鱼、淘宝
+	     是否安装，未安装时才回退到 Safari 打开购买链接。 -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>cydia</string>
+		<string>fleamarket</string>
+		<string>taobao</string>
+	</array>
+
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>用于从相册选择头像与背景图，图片只保存在本机应用内，不会上传。</string>
+
+	<!-- 明文 HTTP 豁免说明：
+	     对齐 Android 的 res/xml/network_security_config.xml —— base-config 关闭明文，
+	     仅为许可/打码中转（自签 IP 证书，走应用内 SPKI 固定）与 debug 联调回环地址开例外。
+	     图书馆上游（wechat.v2.traceint.com / web.traceint.com）必须走 HTTPS，不在此豁免内。
+	     特别说明：更新包下载地址 http://120.27.227.206/apk/ 也需要本条豁免，
+	     因为 iOS 侧只用于查询 version.json 取版本号，取值后仅弹窗提示用户前往下载页，
+	     不做自安装（iOS 无等价 Android DownloadManager 的能力）。 -->
+	<key>_comment_NSAppTransportSecurity</key>
+	<string>默认禁止明文 HTTP。仅为 120.27.227.206（许可/打码/版本查询中转，自签 IP 证书由应用内 SPKI 固定校验）与 127.0.0.1（debug 联调）开 NSExceptionAllowsInsecureHTTPLoads。图书馆上游必须 HTTPS。</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<false/>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>120.27.227.206</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<false/>
+			</dict>
+			<key>127.0.0.1</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<false/>
+			</dict>
+		</dict>
+	</dict>
+
+	<!-- 可选的环境覆盖键：BuildConfig 会优先读取它们，留空则回退编译期默认值。
+	     发版前确保这里的值与 BuildConfig 期望一致；不需要覆盖时保持空串即可。
+	     UpdatePageURL 在正式发版时应填 App Store 或下载页地址，留空则不做更新提示。 -->
+	<key>LicenseAPIBase</key>
+	<string></string>
+	<key>CaptchaAPIBase</key>
+	<string></string>
+	<key>UpdateBase</key>
+	<string></string>
+	<key>LicensePublicKey</key>
+	<string></string>
+	<key>LicenseSPKIPins</key>
+	<string></string>
+	<key>LicenseAllowHTTP</key>
+	<string></string>
+	<key>UpdateManifestName</key>
+	<string></string>
+	<key>UpdatePageURL</key>
+	<string></string>
+</dict>
+</plist>

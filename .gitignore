@@ -3,6 +3,7 @@ node_modules/
 .env
 .env.*
 !.env.example
+*.pem
 *.log
 dist/
 build/
@@ -19,6 +20,38 @@ design/
 .gradle-home/
 android/.gradle/
 android/local.properties
+android/keystore.properties
+android/**/*.jks
+android/**/*.keystore
 *.apk
 *.aab
 *.class
+
+# Local audit captures and deployment archives
+.audit-data*
+.chrome-audit*
+.chrome-cdp-*
+.chrome-dump-audit
+.tmp-*
+.ui-review-auth
+*.tgz
+
+# 管理类敏感文件备份，严禁提交
+important.vip/
+
+# 本地联调数据（含测试密钥），严禁提交
+.data-accept/
+.data-accept-*
+.data-accept.log
+
+# 本地诊断/审计与 Swift 安装缓存
+.diag-logs/
+.ui-review/
+.doc*/
+.swift-install.json
+.swift-releases.json
+
+# iOS 本地构建产物
+ios/.build/
+ios/build/
+ios/verification/vendor/

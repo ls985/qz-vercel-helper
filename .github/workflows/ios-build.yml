@@ -1,0 +1,80 @@
+name: ios-build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+          node --version
+
+      - name: Regenerate project file from disk tree
+        run: node ios/tools/generate-xcodeproj.js
+
+      - name: Build (iOS Simulator, no signing) — compile-error gate
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/GoToLibrary.xcodeproj \
+            -target GoToLibrary \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" \
+            2>&1 | tee build-sim.log
+          grep -E "error:" build-sim.log && exit 1 || true
+
+      - name: Build for device (unsigned) — produce .app for sideload
+        if: success()
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/GoToLibrary.xcodeproj \
+            -target GoToLibrary \
+            -configuration Release \
+            -sdk iphoneos \
+            build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" \
+            2>&1 | tee build-device.log
+          grep -E "error:" build-device.log && exit 1 || true
+
+      - name: Package unsigned IPA
+        if: success()
+        run: |
+          APP=$(find ios/build -type d -name "GoToLibrary.app" | head -1)
+          echo "Found app: $APP"
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qr GoToLibrary-unsigned-${{ github.sha }}.ipa Payload
+          ls -lh GoToLibrary-unsigned-*.ipa
+
+      - name: Upload unsigned IPA
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoToLibrary-unsigned-ipa
+          path: GoToLibrary-unsigned-*.ipa
+          retention-days: 14
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            build-sim.log
+            build-device.log
+          if-no-files-found: ignore
+          retention-days: 7
