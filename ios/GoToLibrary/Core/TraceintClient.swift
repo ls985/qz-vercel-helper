@@ -525,7 +525,8 @@ final class TraceintClient: @unchecked Sendable {
         }
         guard let http = result.1 as? HTTPURLResponse else { return }
         WechatSessionCodec.mergeSetCookies(&jar, setCookieHeaders(from: http))
-        log.debug("Session GET host=\(http.url?.host ?? "", privacy: .public) path=\(http.url?.path ?? "", privacy: .public) status=\(http.statusCode) cookies=\(cookieNames(joinCookieMap(jar)), privacy: .public)")
+        let currentCookieNames = cookieNames(joinCookieMap(jar))
+        log.debug("Session GET host=\(http.url?.host ?? "", privacy: .public) path=\(http.url?.path ?? "", privacy: .public) status=\(http.statusCode) cookies=\(currentCookieNames, privacy: .public)")
 
         var next: String?
         if redirectsLeft > 0, let location = http.value(forHTTPHeaderField: "Location"),
