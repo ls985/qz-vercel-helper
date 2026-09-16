@@ -43,7 +43,7 @@ final class TraceintClient: @unchecked Sendable {
         return "Mozilla/5.0 (iPhone; CPU iPhone OS " + operatingSystemVersion
             + " like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 "
             + "MicroMessenger/8.0.49(0x18003128) NetType/" + currentNetType()
-            + " Language/" + currentLanguage() + " ABI/arm64"
+            + " Language/" + currentLanguage + " ABI/arm64"
     }
 
     private static var operatingSystemVersion: String {

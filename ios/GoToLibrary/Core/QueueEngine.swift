@@ -409,8 +409,8 @@ private actor QueueEngineCore {
         request.setValue("zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7", forHTTPHeaderField: "Accept-Language")
 
         let relay = WebSocketOpenRelay { [weak self] in
+            guard let self else { return }
             Task {
-                guard let self else { return }
                 await self.handleOpened(generation: generation)
             }
         }

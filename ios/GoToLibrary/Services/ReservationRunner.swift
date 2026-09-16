@@ -783,11 +783,13 @@ final class ReservationRunner: ObservableObject {
         // 观察闭包非隔离，统一用 Task 跳回主 actor 再改状态。
         observers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification,
                                             object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.beginBackgroundTime() }
+            guard let self else { return }
+            Task { @MainActor in self.beginBackgroundTime() }
         })
         observers.append(center.addObserver(forName: UIApplication.willEnterForegroundNotification,
                                             object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.handleForeground() }
+            guard let self else { return }
+            Task { @MainActor in self.handleForeground() }
         })
     }
 

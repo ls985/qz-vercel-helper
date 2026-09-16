@@ -167,11 +167,13 @@ final class SessionKeeper: ObservableObject {
         // 不要在这里直接碰 @MainActor 状态。
         observers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification,
                                             object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.handleEnterBackground() }
+            guard let self else { return }
+            Task { @MainActor in self.handleEnterBackground() }
         })
         observers.append(center.addObserver(forName: UIApplication.willEnterForegroundNotification,
                                             object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.handleEnterForeground() }
+            guard let self else { return }
+            Task { @MainActor in self.handleEnterForeground() }
         })
     }
 
